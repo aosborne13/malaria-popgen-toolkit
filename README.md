@@ -6,4 +6,4 @@ This toolkit has been formatted to interpret and analyse whole genome sequencing
 
 Courtesy of Hidayat Trimarsanto (Anto) and Ludwig Kian Soon Hoon.
 
-Filtered WGS data following mapping and QC using alternative pipelines can also be used with this toolkit.
+Filtered WGS data following mapping and QC using alternative pipelines can also be used with this toolkit. For vcf files, the csq field is preffered which can be generated using *bcftools*, available at: https://github.com/samtools/bcftools.
