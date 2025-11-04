@@ -1,0 +1,19 @@
+malaria-popgen-toolkit
+
+© 2025 Ashley Osborne
+
+This toolkit is designed to analyze whole-genome sequencing (WGS) data exported
+from open-access malaria genomics pipelines, including but not limited to:
+
+- VivaxGEN NGS pipeline by Hidayat Trimarsanto (Anto) and Ludwig Kian Soon Hoon
+  https://github.com/vivaxgen/ngs-pipeline
+
+- fastq2matrix pipeline by the LSHTM PathogenSeq Lab
+  https://github.com/LSHTMPathogenSeqLab/fastq2matrix
+
+The downstream analysis scripts, workflows, and command-line interface in the
+malaria-popgen-toolkit are independently developed and maintained.
+
+This toolkit can be applied to data generated from these pipelines or similar
+open-source workflows. Reference to external pipelines is provided for user
+convenience and does not imply endorsement, sponsorship, or ongoing collaboration.
