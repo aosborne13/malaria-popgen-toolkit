@@ -45,7 +45,9 @@ Candidates for *P. vivax* coming soon...
 
 ### Missense variants on validated and candidate drug resistance genes
 **Included markers...**
+
 Validated: K13, CRT, MDR1, DHFR, DHPS
+
 Candidate: AAT1, PX1, UBP1, AP2MU
 
 ```
