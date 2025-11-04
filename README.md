@@ -39,3 +39,20 @@ malaria-pipeline run \
   --min-dp 10
 
 ```
+
+## Drug Resistance - *P. falciparum*
+Candidates for *P. vivax* coming soon...
+
+### Missense variants on WHO validated and candidate drug resistance genes
+Genes included (so far):
+
+```
+malaria-pipeline missense-drugres-af --vcf file.vcf.gz --ref Pf3D7.fasta --gff3 Pf3D7.gff3 --metadata samples.tsv
+
+```
+#### Output example
+Coming soon...
+
+### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
+
+#### Output
