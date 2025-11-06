@@ -29,16 +29,7 @@ Further information and tutorials coming soon.
 ### Quick Start
 How to use **malaria-popgen-toolkit**.
 
-```
-malaria-pipeline run \
-  --vcf path/to/variants.vcf.gz \
-  --ref Pf3D7.fasta \
-  --gff3 Pf3D7.gff3 \
-  --metadata samples.tsv \
-  --outdir out \
-  --min-dp 10
-
-```
+COMING SOON...
 
 ## Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
