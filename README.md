@@ -44,17 +44,28 @@ malaria-pipeline run \
 Candidates for *P. vivax* coming soon...
 
 ### Missense variants on validated and candidate drug resistance genes
-**Included markers...**
+Compute allele frequencies for missense variants in drug-resistance genes, grouping by any metadata column (e.g. country, region, site, or year).
+
+The metadata file **must have at least a sample_id column** *and* your **chosen grouping column**.
+
+#### Included markers...
 
 Validated: K13, CRT, MDR1, DHFR, DHPS
 
 Candidate: AAT1, PX1, UBP1, AP2MU
 
 ```
-malaria-pipeline missense-drugres-af --vcf file.vcf.gz --ref Pf3D7.fasta --gff3 Pf3D7.gff3 --metadata samples.tsv
+malaria-pipeline missense-drugres-af \
+  --vcf path/to/filtered.vcf.gz \
+  --ref path/to/reference.fasta \
+  --gff3 path/to/annotation.gff3 \
+  --metadata path/to/metadata.tsv \
+  --outdir results_missense_AF \
+  --min-dp 5 \
+  --group-by country
 
 ```
-#### Output example
+##### Output example
 Coming soon...
 
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
