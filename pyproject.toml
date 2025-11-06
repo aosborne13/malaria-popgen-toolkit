@@ -23,4 +23,4 @@ Homepage = "https://github.com/yourname/malaria-popgen-toolkit"
 "Bug Tracker" = "https://github.com/yourname/malaria-popgen-toolkit/issues"
 
 [project.scripts]
-malaria-pipeline = "malaria_popgen_toolkit.cli:main"
+malaria-pipeline = "malaria_popgen_toolkit.cli.main:main"
