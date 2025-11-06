@@ -37,7 +37,7 @@ Candidates for *P. vivax* coming soon...
 ### Missense variants on validated and candidate drug resistance genes
 Compute allele frequencies for missense variants in drug-resistance genes, grouping by any metadata column (e.g. country, region, site, or year).
 
-The metadata file **must have at least a sample_id column** *and* your **chosen grouping column**.
+The metadata file **must have a sample_id column** *and* **chosen grouping column**.
 
 #### Included markers...
 
