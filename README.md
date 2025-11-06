@@ -61,4 +61,13 @@ Coming soon...
 
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
 
+```
+malaria-pipeline hapmap-africa \
+  --matrix path/to/matrix.tsv \
+  --metadata path/to/metadata.tsv \
+  --outdir hapmap_africa_output \
+  --sample-col sample_id \
+  --country-col country
+```
+
 #### Output
