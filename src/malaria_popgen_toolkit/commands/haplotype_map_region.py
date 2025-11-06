@@ -1,13 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Haplotype map for Africa (drug-resistance genes).
-- Works with any African countries present in metadata (no hard-coded list).
-- Expects a binary matrix with columns: chr, pos, ref, <sample1> <sample2> ...
-  Values per sample: 0=ref, 0.5=mixed, 1=alt, N/NA=missing
-- Expects metadata TSV with columns: sample_id, country (configurable)
-- Outputs:
-  - CSV per gene with haplotype frequencies by country
-  - A combined PNG map with per-country pie charts
+Regional haplotype maps for drug-resistance genes.
+Regions supported: 'africa', 'south_america', 'southeast_asia'
+- Works with any countries present in metadata for those regions.
+- Matrix TSV must have: chr, pos, ref, then sample columns
+  Values: 0=ref, 0.5=mixed, 1=alt, N/NA=missing
+- Metadata TSV must have: sample_id (default), country (default)
+- Outputs per-gene CSVs and a combined regional PNG.
 """
 
 import os
@@ -17,7 +16,6 @@ import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from shapely.geometry import Point
 
 # Reference amino acids and expected chromosome per gene (Pf3D7 v3)
 GENE_CODON_POSITIONS = {
@@ -63,7 +61,7 @@ WILDTYPE_HAPLO = {
     "MDR1": "NYSND"
 }
 
-# Common country alias mapping for Natural Earth names (minimal set)
+# Country name normalisation (Natural Earth <-> metadata)
 COUNTRY_ALIASES = {
     "DRC": "Democratic Republic of the Congo",
     "Congo (Kinshasa)": "Democratic Republic of the Congo",
@@ -76,6 +74,14 @@ COUNTRY_ALIASES = {
     "Eswatini": "Swaziland",
     "The Gambia": "Gambia",
     "eSwatini": "Swaziland",
+    # SE Asia occasional variants
+    "Laos": "Lao PDR",
+    "Timor Leste": "Timor-Leste",
+}
+
+SE_ASIA_COUNTRIES = {
+    "Brunei", "Cambodia", "Indonesia", "Lao PDR", "Laos", "Malaysia",
+    "Myanmar", "Philippines", "Singapore", "Thailand", "Timor-Leste", "Vietnam"
 }
 
 def _safe(name: str) -> str:
@@ -85,50 +91,36 @@ def _normalize_country(name: str) -> str:
     return COUNTRY_ALIASES.get(name, name)
 
 def _subset_matrix_for_gene(matrix_path: str, gene_key: str) -> pd.DataFrame:
-    """Return a DataFrame containing only rows for the gene's chrom+positions."""
     info = GENE_CODON_POSITIONS[gene_key]
     chrom = info["chrom"]
     positions = set(info["positions"].keys())
 
-    # Read base to find indices for desired rows
     base = pd.read_csv(matrix_path, sep='\t', usecols=['chr', 'pos', 'ref'])
     idx = base[(base['chr'] == chrom) & (base['pos'].isin(positions))].index
 
-    # Read only header + desired rows (skip all others)
     df = pd.read_csv(
         matrix_path, sep='\t',
         skiprows=lambda x: x != 0 and (x - 1) not in set(idx)
     )
-    # Keep sanity
     df = df[df['chr'] == chrom]
     return df
 
 def _haplotype_table(df_gene: pd.DataFrame, gene_key: str) -> pd.DataFrame:
-    """
-    Build a per-sample table of AA calls at specified codons and return a DataFrame:
-    index = sample, columns = codon numbers (e.g., 72, 73, ...), values = AA letter
-    """
     info = GENE_CODON_POSITIONS[gene_key]
     codons_map = info["positions"]  # pos -> (codon_number, ref_aa)
 
-    # Set index to position; drop non-sample cols
     df = df_gene.set_index('pos').drop(columns=['chr', 'ref'], errors='ignore')
     sample_cols = [c for c in df.columns if c not in ('chr', 'ref')]
 
-    # Ensure all codons exist as rows (fill missing with NaN)
     for pos in codons_map:
         if pos not in df.index:
             df.loc[pos, sample_cols] = np.nan
 
-    # Reorder by the codon order
     order = [p for p in codons_map]
-    df = df.loc[order]
-    df = df.sort_index()
+    df = df.loc[order].sort_index()
 
-    # Transpose to samples x positions
-    dfT = df.T  # rows=samples, cols=genome positions
+    dfT = df.T  # rows=samples, cols=positions
 
-    # Build AA calls per codon number
     out = pd.DataFrame(index=dfT.index)
     for pos, (codon_num, ref_aa) in codons_map.items():
         vals = dfT[pos]
@@ -148,23 +140,14 @@ def _haplotype_table(df_gene: pd.DataFrame, gene_key: str) -> pd.DataFrame:
     return out
 
 def _hap_string(row: pd.Series, gene_key: str) -> str:
-    # Preserve defined codon order for the gene
     codon_order = [v[0] for v in GENE_CODON_POSITIONS[gene_key]["positions"].values()]
-    parts = []
-    for c in codon_order:
-        parts.append(row.get(c, ''))
-    return ''.join(parts)
+    return ''.join(row.get(c, '') for c in codon_order)
 
 def _haplotypes_by_country(hap_table: pd.DataFrame,
                            metadata: pd.DataFrame,
                            sample_col: str,
                            country_col: str,
                            gene_key: str) -> dict:
-    """
-    Returns dict: {country_name: [hap1, hap2, ...]}
-    Only countries present in metadata are included.
-    """
-    # Map sample -> country
     meta = metadata[[sample_col, country_col]].dropna()
     meta[country_col] = meta[country_col].map(_normalize_country)
     sample_to_country = dict(zip(meta[sample_col], meta[country_col]))
@@ -203,41 +186,48 @@ def _export_haplotype_proportions(hap_by_country: dict, gene_key: str, out_dir: 
     print(f"Saved CSV: {out_path}")
     return df_out
 
-def _plot_africa_pies(all_haps: dict, out_png: str):
-    """
-    Plot per-country pies for each gene on an Africa basemap.
-    all_haps: {gene: {country: [hap, hap, ...]}}
-    """
-    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
-    africa = world[world["continent"] == "Africa"].copy()
-    africa["name_norm"] = africa["name"].apply(_normalize_country)
+def _region_geodf(region: str) -> gpd.GeoDataFrame:
+    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres")).copy()
+    if region == "africa":
+        df = world[world["continent"] == "Africa"].copy()
+    elif region == "south_america":
+        df = world[world["continent"] == "South America"].copy()
+    elif region == "southeast_asia":
+        df = world[world["name"].isin(SE_ASIA_COUNTRIES)].copy()
+    else:
+        raise SystemExit(f"Unsupported region: {region}")
+    df["name_norm"] = df["name"].apply(_normalize_country)
+    return df
+
+def _region_bounds(ax, region: str):
+    if region == "africa":
+        ax.set_xlim(-25, 55); ax.set_ylim(-35, 25)
+    elif region == "south_america":
+        ax.set_xlim(-85, -30); ax.set_ylim(-60, 15)
+    elif region == "southeast_asia":
+        ax.set_xlim(90, 150); ax.set_ylim(-15, 30)
+
+def _plot_region_pies(all_haps: dict, region: str, out_png: str):
+    region_df = _region_geodf(region)
 
     fig, axes = plt.subplots(2, 2, figsize=(22, 18))
     axes = axes.flatten()
 
     for ax, (gene, hap_by_country) in zip(axes, all_haps.items()):
-        africa.plot(ax=ax, color='whitesmoke', edgecolor='gray')
+        region_df.plot(ax=ax, color='whitesmoke', edgecolor='gray')
 
-        # Build frequencies per country
-        # First pass: collect all unique hap strings for a stable color map
-        unique_haps = set()
-        for hlist in hap_by_country.values():
-            unique_haps |= set(pd.Series(hlist).unique().tolist())
-        unique_haps = sorted(unique_haps)
+        # All unique hap strings for stable colors
+        unique_haps = sorted(set().union(*[set(pd.Series(h).unique()) for h in hap_by_country.values()]) or [])
         cmap = plt.cm.tab20.colors
         hap_colors = {h: cmap[i % len(cmap)] for i, h in enumerate(unique_haps)}
 
-        summary_rows = []
         for country, hlist in hap_by_country.items():
             if not hlist:
                 continue
-            # Find country geometry
             name_norm = _normalize_country(country)
-            row = africa[africa["name_norm"] == name_norm]
+            row = region_df[region_df["name_norm"] == name_norm]
             if row.empty:
-                print(f"[WARN] Country not found on map: {country}")
                 continue
-            # representative_point is safer than centroid for multipolygons
             pt = row.geometry.values[0].representative_point()
             x, y = pt.x, pt.y
 
@@ -246,23 +236,11 @@ def _plot_africa_pies(all_haps: dict, out_png: str):
             if sum(sizes) == 0:
                 continue
 
-            ax.pie(
-                sizes,
-                center=(x, y),
-                radius=2.5,
-                colors=[hap_colors[h] for h in unique_haps],
-                wedgeprops=dict(edgecolor='black')
-            )
-            ax.text(x, y + 3.0, country, ha='center', fontsize=13, fontweight='bold')
+            ax.pie(sizes, center=(x, y), radius=2.5,
+                   colors=[hap_colors[h] for h in unique_haps],
+                   wedgeprops=dict(edgecolor='black'))
+            ax.text(x, y + 2.5, country, ha='center', fontsize=12, fontweight='bold')
 
-            summary_rows.append({
-                "Country": country,
-                "Longitude": x,
-                "Latitude": y,
-                "SampleSize": len(hlist),
-            })
-
-        # Legend
         legend_handles = [
             mpatches.Patch(color=hap_colors[h],
                            label=f"{h}{' (WT)' if h == WILDTYPE_HAPLO.get(gene, '') else ''}")
@@ -270,10 +248,9 @@ def _plot_africa_pies(all_haps: dict, out_png: str):
         ]
         codon_numbers = [str(v[0]) for v in GENE_CODON_POSITIONS[gene]['positions'].values()]
         ax.legend(handles=legend_handles, loc='lower left', fontsize=11,
-                  title=f"{gene}  (codons: {', '.join(codon_numbers)})", title_fontsize=12)
+                  title=f"{gene} (codons: {', '.join(codon_numbers)})", title_fontsize=12)
 
-        ax.set_xlim(-25, 55)
-        ax.set_ylim(-35, 25)
+        _region_bounds(ax, region)
         ax.axis("off")
 
     plt.tight_layout(pad=4)
@@ -281,13 +258,15 @@ def _plot_africa_pies(all_haps: dict, out_png: str):
     plt.savefig(out_png, dpi=300, bbox_inches='tight')
     print(f"Saved map: {out_png}")
 
-def run(matrix_path: str,
+def run(region: str,
+        matrix_path: str,
         metadata_path: str,
         outdir: str,
         sample_col: str = "sample_id",
         country_col: str = "country"):
     """
-    CLI entrypoint for Africa haplotype map.
+    Region-aware CLI entrypoint.
+    region: 'africa' | 'south_america' | 'southeast_asia'
     """
     os.makedirs(outdir, exist_ok=True)
     plots_dir = os.path.join(outdir, "plots")
@@ -299,10 +278,8 @@ def run(matrix_path: str,
     if sample_col not in metadata.columns or country_col not in metadata.columns:
         raise SystemExit(f"Metadata must contain '{sample_col}' and '{country_col}'.")
 
-    # Build haplotypes per gene
     all_haps = {}
     for gene in ["CRT", "MDR1", "DHFR", "DHPS"]:
-        print(f"\n[Gene] {gene}")
         df_gene = _subset_matrix_for_gene(matrix_path, gene)
         hap_table = _haplotype_table(df_gene, gene)
         hap_by_country = _haplotypes_by_country(
@@ -311,9 +288,8 @@ def run(matrix_path: str,
             gene_key=gene
         )
         all_haps[gene] = hap_by_country
-        # CSV per gene
         _export_haplotype_proportions(hap_by_country, gene, csv_dir)
 
-    # Combined map
-    out_png = os.path.join(plots_dir, "haplotype_map_africa.png")
-    _plot_africa_pies(all_haps, out_png)
+    out_png = os.path.join(plots_dir, f"haplotype_map_{region}.png")
+    _plot_region_pies(all_haps, region, out_png)
+
