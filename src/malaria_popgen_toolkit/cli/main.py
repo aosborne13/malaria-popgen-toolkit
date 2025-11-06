@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Main CLI entry point for the malaria-popgen-toolkit.
-Currently supports: missense-drugres-af
+Currently supports:
+  - missense-drugres-af
+  - hapmap-africa
 """
 
 import argparse
 import sys
 import shutil
-from malaria_popgen_toolkit.commands import missense_drugres_af
+from malaria_popgen_toolkit.commands import missense_drugres_af, haplotype_map_africa
 
 
 def require_tool(name: str):
@@ -58,9 +60,29 @@ def main():
             help="Metadata column to group by (e.g., country, region, site, year)"
         )
 
-    args = parser.parse_args()
-    require_tool("bcftools")
+    # -------------------------------------------------------------------------
+    # Command: hapmap-africa
+    # -------------------------------------------------------------------------
+    p2 = sub.add_parser(
+        "hapmap-africa",
+        help="Plot haplotype pies for Africa and export per-gene haplotype frequencies"
+    )
+    p2.add_argument("--matrix", required=True, help="Binary matrix TSV (chr, pos, ref, then sample columns)")
+    p2.add_argument("--metadata", required=True, help="TSV with sample metadata")
+    p2.add_argument("--outdir", default="hapmap_africa_output", help="Output directory")
+    p2.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
+    p2.add_argument("--country-col", default="country", help="Metadata column with country")
 
+    # -------------------------------------------------------------------------
+    # Parse and dispatch
+    # -------------------------------------------------------------------------
+    args = parser.parse_args()
+
+    # bcftools check only needed for VCF workflows
+    if args.command in ("missense-drugres-af", "run", "missense-af"):
+        require_tool("bcftools")
+
+    # Dispatch
     if args.command in ("missense-drugres-af", "run", "missense-af"):
         missense_drugres_af.run(
             vcf=args.vcf,
@@ -72,7 +94,17 @@ def main():
             group_by=args.group_by,
         )
 
+    elif args.command == "hapmap-africa":
+        haplotype_map_africa.run(
+            matrix_path=args.matrix,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            sample_col=args.sample_col,
+            country_col=args.country_col,
+        )
+
 
 if __name__ == "__main__":
     main()
+
 
