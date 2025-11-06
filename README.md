@@ -70,4 +70,8 @@ malaria-pipeline hapmap-africa \
   --country-col country
 ```
 
-#### Output
+#### Example output: African haplotype map
+
+Below is an example output from the `hapmap-africa` command:
+
+![Example African haplotype map](docs/images/hapmap_africa_example.png)
