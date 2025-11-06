@@ -60,6 +60,7 @@ malaria-pipeline missense-drugres-af \
 Coming soon...
 
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
+Support currently includes maps of Africa, South America, and Southeast Asia. As of now, K13 has not been included in these maps as a wild-type haplotype has not been established.
 
 Here is an example of how to run the `hapmap-africa` command to generate a haplotype map of Africa:
 
