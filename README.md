@@ -61,6 +61,8 @@ Coming soon...
 
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
 
+Here is an example of how to run the `hapmap-africa` command to generate a haplotype map of Africa:
+
 ```
 malaria-pipeline hapmap-africa \
   --matrix path/to/matrix.tsv \
@@ -70,7 +72,9 @@ malaria-pipeline hapmap-africa \
   --country-col country
 ```
 
-#### Example output: African haplotype map
+The commands `hapmap-samerica` and `hapmap-seasia` will produce haplotype maps for South America and Southeast Asia, respectively.
+
+#### Example output of the African haplotype map
 
 Below is an example output from the `hapmap-africa` command:
 
