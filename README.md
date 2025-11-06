@@ -80,3 +80,22 @@ The commands `hapmap-samerica` and `hapmap-seasia` will produce haplotype maps f
 Below is an example output from the `hapmap-africa` command:
 
 ![Example African haplotype map](docs/images/hapmap_africa_example.png)
+
+## Multiplicity of Infection (MOI) and Fws
+
+## PCA
+
+## Trees
+
+## IBD
+
+## Selection
+### selection usibg IBD
+
+### iHS and XP-EHH
+
+### Fst
+
+## Structural variant detection
+
+## Admixture ancestry analysis
