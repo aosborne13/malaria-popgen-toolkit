@@ -2,12 +2,14 @@
 """
 Compute allele frequencies for missense variants in drug-resistance genes,
 filtering out sample genotypes with depth DP < min_dp (default 5).
-Writes per-country CSVs and a combined CSV. No plotting.
+Groups by an arbitrary metadata column (e.g., country/region/site/year).
+Writes per-group CSVs and one combined CSV. No plotting.
 """
 
 import subprocess
 import pandas as pd
 import os
+import re
 
 # Define gene regions to subset (update as needed)
 genes = {
@@ -44,9 +46,6 @@ def run_cmd(cmd):
     return result.stdout
 
 def annotate_vcf(vcf, ref_fasta, gff3, out_annotated_vcf):
-    """
-    Annotate with bcftools csq and index.
-    """
     cmd = ['bcftools', 'csq', '-p', 'a', '-f', ref_fasta, '-g', gff3,
            '-o', out_annotated_vcf, '-O', 'z', vcf]
     if run_cmd(cmd) is None:
@@ -54,17 +53,11 @@ def annotate_vcf(vcf, ref_fasta, gff3, out_annotated_vcf):
     return run_cmd(['bcftools', 'index', out_annotated_vcf]) is not None
 
 def query_with_gt_dp(vcf, region):
-    """
-    Query GT:DP per sample.
-    """
     fmt = '%CHROM\t%POS\t%REF\t%ALT\t%INFO/BCSQ[\t%GT:%DP]\n'
     cmd = ['bcftools', 'query', '-f', fmt, '-r', region, vcf]
     return run_cmd(cmd)
 
 def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
-    """
-    Recalculate AF using ONLY genotypes with DP >= min_dp.
-    """
     rows = []
     if not output:
         return pd.DataFrame(rows)
@@ -82,12 +75,10 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
         total_alleles = 0
 
         for tok in sample_tokens:
-            # expect GT:DP
             if ':' not in tok:
                 continue
             gt_str, dp_str = tok.split(':', 1)
 
-            # DP filter
             if dp_str in ('.', ''):
                 continue
             try:
@@ -97,7 +88,6 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
             if dp < min_dp:
                 continue
 
-            # skip missing GT
             if gt_str in ('.', './.', '.|.'):
                 continue
 
@@ -113,7 +103,6 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
 
         af = alt_count / total_alleles
 
-        # now filter to missense + correct gene
         for eff in csq.split(','):
             parts = eff.split('|')
             if len(parts) < 6:
@@ -133,33 +122,43 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
 
     return pd.DataFrame(rows)
 
+def _safe(name: str) -> str:
+    """Filesystem-safe folder/file token."""
+    return re.sub(r'[^A-Za-z0-9._-]+', '_', str(name)).strip('_')
+
 def run(vcf, ref_fasta, gff3, metadata_path, outdir,
-        min_dp=5, write_combined=True):
+        min_dp=5, group_by="country", write_combined=True):
     """
     CLI-facing entrypoint.
+    - group_by: metadata column to group samples by (e.g., country/region/site/year)
     """
     os.makedirs(outdir, exist_ok=True)
 
-    metadata = pd.read_csv(metadata_path, sep="\t")
-    if 'sample_id' not in metadata.columns or 'country' not in metadata.columns:
-        raise SystemExit("Metadata must have 'sample_id' and 'country' columns.")
+    metadata = pd.read_csv(metadata_path, sep="\t", dtype=str)
+    if 'sample_id' not in metadata.columns:
+        raise SystemExit("Metadata must have a 'sample_id' column.")
+    if group_by not in metadata.columns:
+        raise SystemExit(f"Metadata does not contain the requested grouping column '{group_by}'.")
 
-    country_to_samples = metadata.groupby('country')['sample_id'].apply(list).to_dict()
+    groups = metadata.groupby(group_by)['sample_id'].apply(list).to_dict()
     all_data = []
 
-    for country, sample_ids in country_to_samples.items():
-        print(f"\nProcessing samples from country: {country} ...")
-        country_dir = os.path.join(outdir, f"{country}")
-        os.makedirs(country_dir, exist_ok=True)
-        country_data = []
+    # put outputs under outdir/<group_by>/<group_value>/
+    base_out = os.path.join(outdir, group_by)
+    os.makedirs(base_out, exist_ok=True)
+
+    for group_value, sample_ids in groups.items():
+        print(f"\nProcessing group: {group_by} = {group_value} ...")
+        group_dir = os.path.join(base_out, _safe(group_value))
+        os.makedirs(group_dir, exist_ok=True)
+        group_frames = []
 
         for gene, region in genes.items():
             print(f"  Gene {gene} at region {region} ...")
 
-            subset_vcf_file = os.path.join(country_dir, f"{gene}_subset.vcf.gz")
-            annotated_vcf_file = os.path.join(country_dir, f"{gene}_subset_csq.vcf.gz")
+            subset_vcf_file = os.path.join(group_dir, f"{gene}_subset.vcf.gz")
+            annotated_vcf_file = os.path.join(group_dir, f"{gene}_subset_csq.vcf.gz")
 
-            # subset
             cmd = [
                 'bcftools', 'view',
                 '-r', region,
@@ -170,11 +169,9 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
             if run_cmd(cmd) is None or run_cmd(['bcftools', 'index', subset_vcf_file]) is None:
                 continue
 
-            # annotate
             if not annotate_vcf(subset_vcf_file, ref_fasta, gff3, annotated_vcf_file):
                 continue
 
-            # query & calc
             output = query_with_gt_dp(annotated_vcf_file, region)
             if output is None:
                 continue
@@ -183,15 +180,17 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
             if df.empty:
                 continue
 
-            df["country"] = f"{country} (n={len(sample_ids)})"
-            country_data.append(df)
+            # add group label columns
+            df[group_by] = str(group_value)
+            df["group_label"] = f"{group_value} (n={len(sample_ids)})"
+            group_frames.append(df)
 
-        if country_data:
-            country_df = pd.concat(country_data, ignore_index=True)
-            out_csv = os.path.join(country_dir, "missense_AF_per_gene.csv")
-            country_df.to_csv(out_csv, index=False)
-            print(f"  Saved CSV for country {country} to {out_csv}")
-            all_data.append(country_df)
+        if group_frames:
+            group_df = pd.concat(group_frames, ignore_index=True)
+            out_csv = os.path.join(group_dir, "missense_AF_per_gene.csv")
+            group_df.to_csv(out_csv, index=False)
+            print(f"  Saved CSV for {group_by}={group_value} to {out_csv}")
+            all_data.append(group_df)
 
     if not all_data:
         print("No data generated (after DP filtering).")
@@ -199,8 +198,9 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
 
     if write_combined:
         combined = pd.concat(all_data, ignore_index=True).sort_values(
-            by=["country", "gene", "pos"]
+            by=[group_by, "gene", "pos"]
         )
-        combined_out = os.path.join(outdir, "missense_AF_per_gene_all_countries.csv")
+        combined_out = os.path.join(base_out, f"missense_AF_per_gene_by_{group_by}.csv")
         combined.to_csv(combined_out, index=False)
         print(f"Saved combined CSV to {combined_out}")
+
