@@ -90,7 +90,7 @@ Below is an example output from the `hapmap-africa` command:
 ## IBD
 
 ## Selection
-### selection usibg IBD
+### selection using IBD
 
 ### iHS and XP-EHH
 
