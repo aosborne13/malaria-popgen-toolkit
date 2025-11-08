@@ -1,26 +1,18 @@
-[build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "malaria-popgen-toolkit"
 version = "0.1.0"
-description = "Open, reproducible population-genomics workflows for malaria"
+description = "Malaria population genomics toolkit"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "Apache-2.0" }
-authors = [{ name = "Ashley Osborne" }]
-keywords = ["malaria", "plasmodium", "genomics", "population-genetics", "bioinformatics"]
-
-dependencies = [
-  "pandas>=2.0",
-  "matplotlib>=3.7",
-  "seaborn>=0.12",
-]
-
-[project.urls]
-Homepage = "https://github.com/yourname/malaria-popgen-toolkit"
-"Bug Tracker" = "https://github.com/yourname/malaria-popgen-toolkit/issues"
+dependencies = []
 
 [project.scripts]
 malaria-pipeline = "malaria_popgen_toolkit.cli.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
