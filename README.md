@@ -63,18 +63,37 @@ Coming soon...
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
 Support currently includes maps of Africa, South America, and Southeast Asia. As of now, K13 has not been included in these maps as a wild-type haplotype has not been established.
 
-Here is an example of how to run the `hapmap-africa` command to generate a haplotype map of Africa:
+Here is an example of how to run the commands to generate haplotype maps depending on the region you are working in:
 
 ```
+# Africa
 malaria-pipeline hapmap-africa \
-  --matrix path/to/matrix.tsv \
+  --vcf path/to/filtered.vcf.gz \
   --metadata path/to/metadata.tsv \
   --outdir hapmap_africa_output \
+  --min-dp 5 \
   --sample-col sample_id \
   --country-col country
-```
 
-The commands `hapmap-samerica` and `hapmap-seasia` will produce haplotype maps for South America and Southeast Asia, respectively.
+# South America
+malaria-pipeline hapmap-samerica \
+  --vcf path/to/filtered.vcf.gz \
+  --metadata path/to/metadata.tsv \
+  --outdir hapmap_samerica_output \
+  --min-dp 5 \
+  --sample-col sample_id \
+  --country-col country
+
+# Southeast Asia
+malaria-pipeline hapmap-seasia \
+  --vcf path/to/filtered.vcf.gz \
+  --metadata path/to/metadata.tsv \
+  --outdir hapmap_seasia_output \
+  --min-dp 5 \
+  --sample-col sample_id \
+  --country-col country
+
+```
 
 #### Example output of the African haplotype map
 
