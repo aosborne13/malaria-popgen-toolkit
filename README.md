@@ -44,11 +44,6 @@ malaria-pipeline --help
 ## Usage and Documentation (work in progress)
 Further information and tutorials coming soon.
 
-### Quick Start
-How to use **malaria-popgen-toolkit**.
-
-COMING SOON...
-
 ## Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
 
