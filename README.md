@@ -83,9 +83,7 @@ MOI, or *Fws*, is a required metric for some downstream processing. This is calc
 
 User-friendly R-script for running filtered VCF files through *moimix* available from the *malaria-hub* pipeline.
 
-```
-Rscript ~/software/malaria-hub/moi/calculate_fws.R -d <workdir> -f <population_vcf>'
-```
+https://github.com/LSHTMPathogenSeqLab/malaria-hub/tree/master/moi
 
 ### Plot *Fws* by Population
 Plotting *Fws* by population can be an intuitive way to visualise diversity between populations, either between different regions or the same region over different time points. Changes in diversity can give insight into transmission intensity. An *Fws* estimate > 0.95 generally correlates to a monoclonal infection and is more commonly identified in low transmission regions. An isolate with an *Fws* < 0.95 likely consists of multiple clones, with the diversity or number of clones increasing as he *Fws* value decreases.
