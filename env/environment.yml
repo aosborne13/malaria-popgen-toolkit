@@ -23,8 +23,8 @@ dependencies:
 
   # ---- R + dependencies ----
   - r-base
-  - r-devtools
-  - r-tidyverse         # ggplot2, dplyr, stringr, readr, tibble, purrr, etc.
+  - r-devtools         # required (not optional)
+  - r-tidyverse        # ggplot2, dplyr, stringr, readr, tibble, purrr, etc.
   - r-ggrepel
   - r-data.table
   - r-gt
@@ -36,11 +36,11 @@ dependencies:
   - r-scales
   - r-amap
 
-  # ---- hmmIBD (from bioconda) ----
-  - hmmibd
-
-  # ---- R packages to be installed from GitHub ----
+  # ---- For building R/TESS3r ----
   - r-remotes
   - r-rcpp
   - r-rcpparmadillo
+
+  # (hmmIBD is compiled from source in scripts/setup_env.sh)
+
 
