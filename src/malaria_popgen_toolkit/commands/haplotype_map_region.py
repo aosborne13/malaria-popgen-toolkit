@@ -1,23 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Regional haplotype maps for drug-resistance genes.
-Regions supported: 'africa', 'south_america', 'southeast_asia'
-- Works with any countries present in metadata for those regions.
-- Matrix TSV must have: chr, pos, ref, then sample columns
-  Values: 0=ref, 0.5=mixed, 1=alt, N/NA=missing
-- Metadata TSV must have: sample_id (default), country (default)
+Regional haplotype maps for drug-resistance genes (VCF + DP filter).
+Regions: 'africa', 'south_america', 'southeast_asia'
+
+- Reads VCF with bcftools and pulls GT:DP for specific Pf3D7 positions.
+- Applies per-sample min DP (default 5).
+- Metadata TSV must have: sample_id (default), country (default).
 - Outputs per-gene CSVs and a combined regional PNG.
 """
 
 import os
 import re
+import subprocess
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-# Reference amino acids and expected chromosome per gene (Pf3D7 v3)
+# Pf3D7 v3 codon reference per gene (positions in 1-based genome coords)
 GENE_CODON_POSITIONS = {
     "CRT": {
         "chrom": "Pf3D7_07_v3",
@@ -54,14 +55,8 @@ MUTANT_AA = {
     "DHPS": {436: 'H', 437: 'A', 540: 'E', 581: 'G'}
 }
 
-WILDTYPE_HAPLO = {
-    "DHFR": "NCSI",
-    "DHPS": "SAKA",
-    "CRT": "CVMNK",
-    "MDR1": "NYSND"
-}
+WILDTYPE_HAPLO = {"DHFR": "NCSI", "DHPS": "SAKA", "CRT": "CVMNK", "MDR1": "NYSND"}
 
-# Country name normalisation (Natural Earth <-> metadata)
 COUNTRY_ALIASES = {
     "DRC": "Democratic Republic of the Congo",
     "Congo (Kinshasa)": "Democratic Republic of the Congo",
@@ -74,11 +69,9 @@ COUNTRY_ALIASES = {
     "Eswatini": "Swaziland",
     "The Gambia": "Gambia",
     "eSwatini": "Swaziland",
-    # SE Asia occasional variants
     "Laos": "Lao PDR",
     "Timor Leste": "Timor-Leste",
 }
-
 SE_ASIA_COUNTRIES = {
     "Brunei", "Cambodia", "Indonesia", "Lao PDR", "Laos", "Malaysia",
     "Myanmar", "Philippines", "Singapore", "Thailand", "Timor-Leste", "Vietnam"
@@ -90,101 +83,146 @@ def _safe(name: str) -> str:
 def _normalize_country(name: str) -> str:
     return COUNTRY_ALIASES.get(name, name)
 
-def _subset_matrix_for_gene(matrix_path: str, gene_key: str) -> pd.DataFrame:
-    info = GENE_CODON_POSITIONS[gene_key]
+def _run(cmd: list[str]) -> str | None:
+    print("Running:", " ".join(cmd))
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print("[ERROR]", r.stderr.strip())
+        return None
+    return r.stdout
+
+def _query_gene_positions(vcf: str, samples: list[str], gene: str, min_dp: int) -> pd.DataFrame:
+    """Query GT:DP for the gene's positions using bcftools; return tidy long DF."""
+    info = GENE_CODON_POSITIONS[gene]
     chrom = info["chrom"]
-    positions = set(info["positions"].keys())
+    pos_list = sorted(info["positions"].keys())
 
-    base = pd.read_csv(matrix_path, sep='\t', usecols=['chr', 'pos', 'ref'])
-    idx = base[(base['chr'] == chrom) & (base['pos'].isin(positions))].index
+    # Compose -r ranges as individual positions (chrom:pos-pos)
+    regions = ",".join([f"{chrom}:{p}-{p}" for p in pos_list])
 
-    df = pd.read_csv(
-        matrix_path, sep='\t',
-        skiprows=lambda x: x != 0 and (x - 1) not in set(idx)
-    )
-    df = df[df['chr'] == chrom]
-    return df
+    # bcftools query: CHROM POS REF ALT  [  sample1(GT:DP)  sample2(GT:DP) ... ]
+    fmt = "%CHROM\t%POS[\t%GT:%DP]\n"
+    cmd = ["bcftools", "query", "-f", fmt, "-r", regions, "-s", ",".join(samples), vcf]
+    out = _run(cmd)
+    if out is None or out.strip() == "":
+        return pd.DataFrame(columns=["chrom", "pos", "sample", "gt", "dp"])
 
-def _haplotype_table(df_gene: pd.DataFrame, gene_key: str) -> pd.DataFrame:
-    info = GENE_CODON_POSITIONS[gene_key]
-    codons_map = info["positions"]  # pos -> (codon_number, ref_aa)
-
-    df = df_gene.set_index('pos').drop(columns=['chr', 'ref'], errors='ignore')
-    sample_cols = [c for c in df.columns if c not in ('chr', 'ref')]
-
-    for pos in codons_map:
-        if pos not in df.index:
-            df.loc[pos, sample_cols] = np.nan
-
-    order = [p for p in codons_map]
-    df = df.loc[order].sort_index()
-
-    dfT = df.T  # rows=samples, cols=positions
-
-    out = pd.DataFrame(index=dfT.index)
-    for pos, (codon_num, ref_aa) in codons_map.items():
-        vals = dfT[pos]
-        aa_calls = []
-        mut_aa = MUTANT_AA.get(gene_key, {}).get(codon_num, ref_aa)
-        for v in vals:
+    # Parse to long format
+    rows = []
+    for line in out.strip().splitlines():
+        parts = line.split("\t")
+        chrom_v, pos_v = parts[0], int(parts[1])
+        sample_fields = parts[2:]
+        for samp, tok in zip(samples, sample_fields):
+            if ":" in tok:
+                gt, dp = tok.split(":", 1)
+            else:
+                gt, dp = tok, "."
+            # apply DP filter here by marking low-DP as missing
             try:
-                if float(v) == 0:
-                    aa_calls.append(ref_aa)
-                elif float(v) in (0.5, 1.0):
-                    aa_calls.append(mut_aa)
-                else:
-                    aa_calls.append(ref_aa)
-            except Exception:
-                aa_calls.append(ref_aa)
-        out[codon_num] = aa_calls
-    return out
+                dp_int = int(dp)
+            except ValueError:
+                dp_int = None
+            if dp_int is not None and dp_int < min_dp:
+                gt_use = "."
+            else:
+                gt_use = gt
+            rows.append({"chrom": chrom_v, "pos": pos_v, "sample": samp, "gt": gt_use, "dp": dp_int})
+    return pd.DataFrame(rows)
 
-def _hap_string(row: pd.Series, gene_key: str) -> str:
-    codon_order = [v[0] for v in GENE_CODON_POSITIONS[gene_key]["positions"].values()]
-    return ''.join(row.get(c, '') for c in codon_order)
+def _hap_table_from_vcf(df_long: pd.DataFrame, gene: str) -> pd.DataFrame:
+    """
+    Convert long GT table to per-sample AA calls per codon; drop samples with any missing codon.
+    0/0 -> ref AA; genotypes containing '1' -> mutant AA; missing -> NaN.
+    """
+    info = GENE_CODON_POSITIONS[gene]
+    pos2codon = info["positions"]  # pos -> (codon_num, ref_aa)
+
+    # Map GT to AA
+    df = df_long.copy()
+    def gt_to_state(gt: str) -> float | None:
+        if gt in (".", "./.", ".|."):
+            return None
+        # haploid/mixed/diploid encodings: treat any '1' as mutant
+        if "1" in gt:
+            return 1.0
+        return 0.0
+
+    df["state"] = df["gt"].map(gt_to_state)
+
+    # Pivot to samples x positions (state)
+    pivot = df.pivot_table(index="sample", columns="pos", values="state", aggfunc="first")
+
+    # Ensure all positions exist
+    for pos in pos2codon:
+        if pos not in pivot.columns:
+            pivot[pos] = np.nan
+    pivot = pivot[sorted(pos2codon.keys())]
+
+    # Build AA calls per codon number
+    aa = pd.DataFrame(index=pivot.index)
+    for pos in pivot.columns:
+        codon_num, ref_aa = pos2codon[pos]
+        mut_aa = MUTANT_AA.get(gene, {}).get(codon_num, ref_aa)
+        col = []
+        for v in pivot[pos]:
+            if pd.isna(v):
+                col.append(np.nan)
+            elif v == 0.0:
+                col.append(ref_aa)
+            else:  # 1.0
+                col.append(mut_aa)
+        aa[codon_num] = col
+
+    # drop samples with any missing codon
+    aa = aa.dropna(axis=0, how="any")
+    return aa
+
+def _hap_string(row: pd.Series, gene: str) -> str:
+    codon_order = [v[0] for v in GENE_CODON_POSITIONS[gene]["positions"].values()]
+    return "".join(row.get(c, "") for c in codon_order)
 
 def _haplotypes_by_country(hap_table: pd.DataFrame,
                            metadata: pd.DataFrame,
                            sample_col: str,
                            country_col: str,
-                           gene_key: str) -> dict:
+                           gene: str) -> dict[str, list[str]]:
     meta = metadata[[sample_col, country_col]].dropna()
     meta[country_col] = meta[country_col].map(_normalize_country)
-    sample_to_country = dict(zip(meta[sample_col], meta[country_col]))
+    s2c = dict(zip(meta[sample_col], meta[country_col]))
 
-    haps = {}
+    haps: dict[str, list[str]] = {}
     for sample in hap_table.index:
-        country = sample_to_country.get(sample)
+        country = s2c.get(sample)
         if not country:
             continue
-        hap = _hap_string(hap_table.loc[sample], gene_key)
+        hap = _hap_string(hap_table.loc[sample], gene)
         haps.setdefault(country, []).append(hap)
     return haps
 
-def _export_haplotype_proportions(hap_by_country: dict, gene_key: str, out_dir: str):
+def _export_haplotype_proportions(hap_by_country: dict, gene: str, out_dir: str):
     records = []
     for country, hap_list in hap_by_country.items():
-        total = len(hap_list)
-        if total == 0:
+        n = len(hap_list)
+        if n == 0:
             continue
         counts = pd.Series(hap_list).value_counts(normalize=True)
         for hap, freq in counts.items():
             records.append({
-                "Gene": gene_key,
+                "Gene": gene,
                 "Country": country,
                 "Haplotype": hap,
                 "Frequency": round(float(freq), 4),
-                "SampleSize": total,
-                "Is_Wildtype": hap == WILDTYPE_HAPLO.get(gene_key, "")
+                "SampleSize": n,
+                "Is_Wildtype": hap == WILDTYPE_HAPLO.get(gene, "")
             })
     if not records:
-        return None
+        return
     df_out = pd.DataFrame(records)
     os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"{gene_key}_haplotype_frequencies.csv")
+    out_path = os.path.join(out_dir, f"{gene}_haplotype_frequencies.csv")
     df_out.to_csv(out_path, index=False)
     print(f"Saved CSV: {out_path}")
-    return df_out
 
 def _region_geodf(region: str) -> gpd.GeoDataFrame:
     world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres")).copy()
@@ -209,14 +247,13 @@ def _region_bounds(ax, region: str):
 
 def _plot_region_pies(all_haps: dict, region: str, out_png: str):
     region_df = _region_geodf(region)
-
     fig, axes = plt.subplots(2, 2, figsize=(22, 18))
     axes = axes.flatten()
 
     for ax, (gene, hap_by_country) in zip(axes, all_haps.items()):
         region_df.plot(ax=ax, color='whitesmoke', edgecolor='gray')
 
-        # All unique hap strings for stable colors
+        # Unique hap strings for stable colors
         unique_haps = sorted(set().union(*[set(pd.Series(h).unique()) for h in hap_by_country.values()]) or [])
         cmap = plt.cm.tab20.colors
         hap_colors = {h: cmap[i % len(cmap)] for i, h in enumerate(unique_haps)}
@@ -224,8 +261,7 @@ def _plot_region_pies(all_haps: dict, region: str, out_png: str):
         for country, hlist in hap_by_country.items():
             if not hlist:
                 continue
-            name_norm = _normalize_country(country)
-            row = region_df[region_df["name_norm"] == name_norm]
+            row = region_df[region_df["name_norm"] == _normalize_country(country)]
             if row.empty:
                 continue
             pt = row.geometry.values[0].representative_point()
@@ -246,9 +282,9 @@ def _plot_region_pies(all_haps: dict, region: str, out_png: str):
                            label=f"{h}{' (WT)' if h == WILDTYPE_HAPLO.get(gene, '') else ''}")
             for h in unique_haps
         ]
-        codon_numbers = [str(v[0]) for v in GENE_CODON_POSITIONS[gene]['positions'].values()]
+        codons = [str(v[0]) for v in GENE_CODON_POSITIONS[gene]['positions'].values()]
         ax.legend(handles=legend_handles, loc='lower left', fontsize=11,
-                  title=f"{gene} (codons: {', '.join(codon_numbers)})", title_fontsize=12)
+                  title=f"{gene} (codons: {', '.join(codons)})", title_fontsize=12)
 
         _region_bounds(ax, region)
         ax.axis("off")
@@ -259,13 +295,14 @@ def _plot_region_pies(all_haps: dict, region: str, out_png: str):
     print(f"Saved map: {out_png}")
 
 def run(region: str,
-        matrix_path: str,
+        vcf: str,
         metadata_path: str,
         outdir: str,
+        min_dp: int = 5,
         sample_col: str = "sample_id",
         country_col: str = "country"):
     """
-    Region-aware CLI entrypoint.
+    Region-aware CLI entrypoint (VCF + DP).
     region: 'africa' | 'south_america' | 'southeast_asia'
     """
     os.makedirs(outdir, exist_ok=True)
@@ -274,23 +311,26 @@ def run(region: str,
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(csv_dir, exist_ok=True)
 
-    metadata = pd.read_csv(metadata_path, sep="\t", dtype=str)
-    if sample_col not in metadata.columns or country_col not in metadata.columns:
+    meta = pd.read_csv(metadata_path, sep="\t", dtype=str)
+    if sample_col not in meta.columns or country_col not in meta.columns:
         raise SystemExit(f"Metadata must contain '{sample_col}' and '{country_col}'.")
+    samples = meta[sample_col].dropna().unique().tolist()
 
     all_haps = {}
     for gene in ["CRT", "MDR1", "DHFR", "DHPS"]:
-        df_gene = _subset_matrix_for_gene(matrix_path, gene)
-        hap_table = _haplotype_table(df_gene, gene)
+        print(f"[Gene] {gene}")
+        df_long = _query_gene_positions(vcf, samples=samples, gene=gene, min_dp=min_dp)
+        if df_long.empty:
+            print(f"[WARN] No data for {gene}")
+            all_haps[gene] = {}
+            continue
+        hap_table = _hap_table_from_vcf(df_long, gene)
         hap_by_country = _haplotypes_by_country(
-            hap_table, metadata,
-            sample_col=sample_col, country_col=country_col,
-            gene_key=gene
+            hap_table, meta,
+            sample_col=sample_col, country_col=country_col, gene=gene
         )
         all_haps[gene] = hap_by_country
         _export_haplotype_proportions(hap_by_country, gene, csv_dir)
 
     out_png = os.path.join(plots_dir, f"haplotype_map_{region}.png")
     _plot_region_pies(all_haps, region, out_png)
-
-
