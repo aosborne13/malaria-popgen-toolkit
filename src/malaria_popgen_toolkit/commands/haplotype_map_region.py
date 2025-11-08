@@ -293,3 +293,4 @@ def run(region: str,
     out_png = os.path.join(plots_dir, f"haplotype_map_{region}.png")
     _plot_region_pies(all_haps, region, out_png)
 
+
