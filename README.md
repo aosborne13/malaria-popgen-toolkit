@@ -6,7 +6,9 @@ This toolkit has been formatted to interpret and analyse whole genome sequencing
 
 Courtesy of Hidayat Trimarsanto (Anto) and Ludwig Kian Soon Hoon.
 
-Downstream processing was also carried out using the *fastq2matrix* and *malaria-hub* pipeline, courtesy of the **LSHTMPathogenSeqLab**, available at: https://github.com/LSHTMPathogenSeqLab/fastq2matrix and https://github.com/LSHTMPathogenSeqLab/malaria-hub
+Downstream processing was also carried out using the *fastq2matrix* and *malaria-hub* pipeline, courtesy of the **LSHTMPathogenSeqLab**, available at: 
+https://github.com/LSHTMPathogenSeqLab/fastq2matrix 
+https://github.com/LSHTMPathogenSeqLab/malaria-hub
 
 For vcf files, the csq field is prefered which can be generated using *bcftools*, available at: https://github.com/samtools/bcftools.
 
