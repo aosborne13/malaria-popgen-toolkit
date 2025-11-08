@@ -6,12 +6,7 @@ This toolkit has been formatted to interpret and analyse whole genome sequencing
 
 Courtesy of Hidayat Trimarsanto (Anto) and Ludwig Kian Soon Hoon.
 
-Install VivaxGEN NGS pipeline prerequisites (if you’re using those outputs):
-```
-"${SHELL}" <(curl -L https://raw.githubusercontent.com/vivaxgen/ngs-pipeline/main/install.sh)
-
-```
-Filtered WGS data following mapping and QC using alternative pipelines can also be used with this toolkit. This includes outputs such as those from the *fastq2matrix* pipeline, courtesy of the **LSHTMPathogenSeqLab**, available at: https://github.com/LSHTMPathogenSeqLab/fastq2matrix
+Downstream processing was also carried out using the *fastq2matrix* and *malaria-hub* pipeline, courtesy of the **LSHTMPathogenSeqLab**, available at: https://github.com/LSHTMPathogenSeqLab/fastq2matrix and https://github.com/LSHTMPathogenSeqLab/malaria-hub
 
 For vcf files, the csq field is prefered which can be generated using *bcftools*, available at: https://github.com/samtools/bcftools.
 
