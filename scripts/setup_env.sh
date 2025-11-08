@@ -57,3 +57,7 @@ echo "  malaria-pipeline --help"
 echo "  hmmIBD -h"
 echo '  R -q -e "library(TESS3r); sessionInfo()"'
 
+echo "📦 Installing malaria-popgen-toolkit into the environment..."
+micromamba run -n malaria-popgen python -m pip install -U pip setuptools wheel
+micromamba run -n malaria-popgen pip install -e .
+echo "✅ Installation complete. Activate with: micromamba activate malaria-popgen"
