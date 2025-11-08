@@ -17,11 +17,28 @@ https://github.com/LSHTMPathogenSeqLab/malaria-hub
 For vcf files, the csq field is prefered which can be generated using *bcftools*, available at: https://github.com/samtools/bcftools.
 
 ### Install **malaria-popgen-toolkit**.
+Step 1: Install micromamba (if you don't already have it).
 ```
-pip install malaria-popgen-toolkit
-# or from source while developing:
-# pip install -e .
-
+curl -L micro.mamba.pm/install.sh | bash
+exec bash  # restart your shell so micromamba is available
+```
+Step 2: Clone this repository.
+```
+git clone https://github.com/aosborne13/malaria-popgen-toolkit.git
+cd malaria-popgen-toolkit
+```
+Step 3: Create the environment.
+This installs all prerequisites (Python, R packages, bcftools, hmmIBD, TESS3r, etc.) in one command. Requires a stead internet connection.
+```
+bash scripts/setup_env.sh
+```
+Step 4: Activate the new environment once the installation is complete.
+```
+micromamba activate malaria-popgen
+```
+Step 5: Verify installation.
+```
+malaria-pipeline --help
 ```
 
 ## Usage and Documentation (work in progress)
