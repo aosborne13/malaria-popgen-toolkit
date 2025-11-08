@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Main CLI entry point for the malaria-popgen-toolkit.
-Currently supports:
+Commands:
   - missense-drugres-af
   - hapmap-africa
   - hapmap-samerica
@@ -28,7 +28,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     # -------------------------------------------------------------------------
-    # Command: missense-drugres-af  (aliases: run, missense-af)
+    # Command: missense-drugres-af (VCF + DP filtering)
     # -------------------------------------------------------------------------
     p1 = sub.add_parser(
         "missense-drugres-af",
@@ -46,22 +46,8 @@ def main():
         help="Metadata column to group by (e.g., country, region, site, year)"
     )
 
-    for alias in ("run", "missense-af"):
-        pa = sub.add_parser(alias, help="Alias of 'missense-drugres-af'")
-        pa.add_argument("vcf", help="Input VCF (bgzipped)")
-        pa.add_argument("--ref", required=True, help="Reference FASTA file")
-        pa.add_argument("--gff3", required=True, help="GFF3 annotation file")
-        pa.add_argument("--metadata", required=True, help="TSV with 'sample_id' and grouping column")
-        pa.add_argument("--outdir", default="output_missense", help="Output directory")
-        pa.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample read depth (DP)")
-        pa.add_argument(
-            "--group-by",
-            default="country",
-            help="Metadata column to group by (e.g., country, region, site, year)"
-        )
-
     # -------------------------------------------------------------------------
-    # Command: hapmap-africa  (VCF + DP filtering)
+    # Command: hapmap-africa (VCF + DP filtering)
     # -------------------------------------------------------------------------
     p2 = sub.add_parser(
         "hapmap-africa",
@@ -75,7 +61,7 @@ def main():
     p2.add_argument("--country-col", default="country", help="Metadata column with country")
 
     # -------------------------------------------------------------------------
-    # Command: hapmap-samerica (South America)  (VCF + DP filtering)
+    # Command: hapmap-samerica (South America; VCF + DP filtering)
     # -------------------------------------------------------------------------
     p3 = sub.add_parser(
         "hapmap-samerica",
@@ -89,7 +75,7 @@ def main():
     p3.add_argument("--country-col", default="country", help="Metadata column with country")
 
     # -------------------------------------------------------------------------
-    # Command: hapmap-seasia (Southeast Asia)  (VCF + DP filtering)
+    # Command: hapmap-seasia (Southeast Asia; VCF + DP filtering)
     # -------------------------------------------------------------------------
     p4 = sub.add_parser(
         "hapmap-seasia",
@@ -107,12 +93,11 @@ def main():
     # -------------------------------------------------------------------------
     args = parser.parse_args()
 
-    # bcftools is required for all VCF-driven commands
-    if args.command in ("missense-drugres-af", "run", "missense-af",
-                        "hapmap-africa", "hapmap-samerica", "hapmap-seasia"):
+    # All current commands query VCFs via bcftools
+    if args.command in ("missense-drugres-af", "hapmap-africa", "hapmap-samerica", "hapmap-seasia"):
         require_tool("bcftools")
 
-    if args.command in ("missense-drugres-af", "run", "missense-af"):
+    if args.command == "missense-drugres-af":
         missense_drugres_af.run(
             vcf=args.vcf,
             ref_fasta=args.ref,
@@ -159,3 +144,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
