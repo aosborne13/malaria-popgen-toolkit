@@ -78,7 +78,17 @@ Below is an example output from the `hapmap-africa` command:
 
 ![Example African haplotype map](docs/images/hapmap_africa_example.png)
 
-## Multiplicity of Infection (MOI) and Fws
+## Multiplicity of Infection (MOI) - calculating *Fws* estimates
+MOI, or *Fws*, is a required metric for some downstream processing. This is calculated using *moimix* R-based package, available at: https://github.com/bahlolab/moimix
+
+User-friendly R-script for running filtered VCF files through *moimix* available from the *malaria-hub* pipeline.
+
+```
+Rscript ~/software/malaria-hub/moi/calculate_fws.R -d <workdir> -f <population_vcf>'
+```
+
+### Plot *Fws* by Population
+Plotting *Fws* by population can be an intuitive way to visualise diversity between populations, either between different regions or the same region over different time points. Changes in diversity can give insight into transmission intensity. An *Fws* estimate > 0.95 generally correlates to a monoclonal infection and is more commonly identified in low transmission regions. An isolate with an *Fws* < 0.95 likely consists of multiple clones, with the diversity or number of clones increasing as he *Fws* value decreases.
 
 ## PCA
 
