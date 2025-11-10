@@ -14,6 +14,8 @@ dependencies:
   - shapely
   - pyproj
   - fiona
+  - geodatasets
+
 
   # ---- CLI tools ----
   - bcftools
