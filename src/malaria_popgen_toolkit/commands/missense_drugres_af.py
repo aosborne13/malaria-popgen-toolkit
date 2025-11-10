@@ -48,6 +48,9 @@ def run_cmd(cmd):
     return result.stdout
 
 def annotate_vcf(vcf, ref_fasta, gff3, out_annotated_vcf):
+    """
+    Annotate with bcftools csq and index.
+    """
     cmd = ['bcftools', 'csq', '-p', 'a', '-f', ref_fasta, '-g', gff3,
            '-o', out_annotated_vcf, '-O', 'z', vcf]
     if run_cmd(cmd) is None:
@@ -55,6 +58,9 @@ def annotate_vcf(vcf, ref_fasta, gff3, out_annotated_vcf):
     return run_cmd(['bcftools', 'index', out_annotated_vcf]) is not None
 
 def query_with_gt_dp(vcf, region):
+    """
+    Query GT:DP per sample.
+    """
     fmt = '%CHROM\t%POS\t%REF\t%ALT\t%INFO/BCSQ[\t%GT:%DP]\n'
     cmd = ['bcftools', 'query', '-f', fmt, '-r', region, vcf]
     return run_cmd(cmd)
@@ -72,6 +78,8 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
     """
     Recalculate AF using ONLY genotypes with DP >= min_dp.
     Accept BCSQ gene tokens in either field [1] or [2] (ID vs symbol), case-insensitive.
+
+    Returns rows with AF and N (number of contributing samples at this site).
     """
     rows = []
     if not output:
@@ -88,6 +96,7 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
 
         alt_count = 0
         total_alleles = 0
+        contrib_samples = 0  # number of samples that passed DP & had usable GT
 
         for tok in sample_tokens:
             # expect GT:DP
@@ -112,6 +121,9 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
             alleles = [a for a in gt_str.replace('|', '/').split('/') if a in ('0', '1')]
             if not alleles:
                 continue
+
+            # Count this sample once as contributing
+            contrib_samples += 1
 
             alt_count += sum(1 for a in alleles if a == '1')
             total_alleles += len(alleles)
@@ -138,7 +150,8 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
                     "ref": ref,
                     "alt": alt,
                     "aa_change": aa_change,
-                    "AF": af
+                    "AF": af,
+                    "N": contrib_samples,  # per-site contributing samples
                 })
 
     return pd.DataFrame(rows)
@@ -224,7 +237,7 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
 
             # add group label columns
             df[group_by] = str(group_value)
-            df["group_label"] = f"{group_value} (n={len(present)})"
+            df["group_label"] = str(group_value)  # do not include (n=...) since N varies by site
             group_frames.append(df)
 
         if group_frames:
@@ -247,6 +260,7 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
         combined_out = os.path.join(base_out, f"missense_AF_per_gene_by_{group_by}.csv")
         combined.to_csv(combined_out, index=False)
         print(f"Saved combined CSV to {combined_out}")
+
 
 
 
