@@ -34,7 +34,7 @@ def main():
         "missense-drugres-af",
         help="Compute missense allele frequencies in drug-resistance genes"
     )
-    p1.add_argument("vcf", help="Input VCF (bgzipped)")
+    p1.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
     p1.add_argument("--ref", required=True, help="Reference FASTA file")
     p1.add_argument("--gff3", required=True, help="GFF3 annotation file")
     p1.add_argument("--metadata", required=True, help="TSV with 'sample_id' and grouping column")
@@ -144,4 +144,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
