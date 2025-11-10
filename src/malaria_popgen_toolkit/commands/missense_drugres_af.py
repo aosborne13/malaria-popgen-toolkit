@@ -25,7 +25,7 @@ genes = {
 }
 
 # Define gene aliases to match in BCSQ field
-# NOTE: Add PF3D7 IDs where needed; AAT1 commonly appears as PF3D7_0629500 in BCSQ.
+# NOTE: AAT1 often appears as PF3D7_0629500 in BCSQ.
 gene_aliases = {
     "CRT":   ["CRT"],
     "K13":   ["K13"],
@@ -35,13 +35,14 @@ gene_aliases = {
     "PX1":   ["PX1"],
     "UBP1":  ["UBP1"],
     "AP2MU": ["AP2-MU", "AP2MU"],
-    "AAT1":  ["AAT1", "PF3D7_0629500"],  # <-- important for your case
+    "AAT1":  ["AAT1", "PF3D7_0629500"],
 }
 
 def run_cmd(cmd):
     print(f"Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        # echo stderr to help diagnose missing samples, etc.
         print(f"ERROR running {' '.join(cmd)}:\n{result.stderr}")
         return None
     return result.stdout
@@ -58,6 +59,15 @@ def query_with_gt_dp(vcf, region):
     cmd = ['bcftools', 'query', '-f', fmt, '-r', region, vcf]
     return run_cmd(cmd)
 
+def get_vcf_samples(vcf):
+    """
+    Return the set of sample names present in the VCF.
+    """
+    out = run_cmd(['bcftools', 'query', '-l', vcf])
+    if out is None:
+        return set()
+    return {x.strip() for x in out.strip().splitlines() if x.strip()}
+
 def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
     """
     Recalculate AF using ONLY genotypes with DP >= min_dp.
@@ -67,7 +77,6 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
     if not output:
         return pd.DataFrame(rows)
 
-    # Normalize alias list to uppercase for robust matching
     alias_set = {a.upper() for a in gene_aliases.get(gene_name, [gene_name])}
 
     for line in output.strip().split('\n'):
@@ -146,12 +155,19 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
     """
     os.makedirs(outdir, exist_ok=True)
 
+    # Load metadata
     metadata = pd.read_csv(metadata_path, sep="\t", dtype=str)
     if 'sample_id' not in metadata.columns:
         raise SystemExit("Metadata must have a 'sample_id' column.")
     if group_by not in metadata.columns:
         raise SystemExit(f"Metadata does not contain the requested grouping column '{group_by}'.")
 
+    # Get actual sample names present in the VCF, to avoid bcftools errors
+    vcf_samples = get_vcf_samples(vcf)
+    if not vcf_samples:
+        raise SystemExit("Failed to read sample names from VCF (bcftools query -l).")
+
+    # Build groups
     groups = metadata.groupby(group_by)['sample_id'].apply(list).to_dict()
     all_data = []
 
@@ -160,7 +176,18 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
     os.makedirs(base_out, exist_ok=True)
 
     for group_value, sample_ids in groups.items():
-        print(f"\nProcessing group: {group_by} = {group_value} ...")
+        # Limit to samples that actually exist in the VCF
+        present = [s for s in sample_ids if s in vcf_samples]
+        missing = sorted(set(sample_ids) - set(present))
+        if missing:
+            print(f"[WARN] {group_by}={group_value}: {len(missing)} metadata samples not found in VCF "
+                  f"(showing up to 10): {', '.join(missing[:10])}")
+
+        if not present:
+            print(f"[WARN] {group_by}={group_value}: no matching samples in VCF; skipping group.")
+            continue
+
+        print(f"\nProcessing group: {group_by} = {group_value} (n_present={len(present)}, n_missing={len(missing)})")
         group_dir = os.path.join(base_out, _safe(group_value))
         os.makedirs(group_dir, exist_ok=True)
         group_frames = []
@@ -171,19 +198,22 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
             subset_vcf_file = os.path.join(group_dir, f"{gene}_subset.vcf.gz")
             annotated_vcf_file = os.path.join(group_dir, f"{gene}_subset_csq.vcf.gz")
 
+            # Subset strictly to PRESENT samples to avoid bcftools failure
             cmd = [
                 'bcftools', 'view',
                 '-r', region,
-                '-s', ','.join(sample_ids),
+                '-s', ','.join(present),
                 '-Oz', '-o', subset_vcf_file,
                 vcf
             ]
             if run_cmd(cmd) is None or run_cmd(['bcftools', 'index', subset_vcf_file]) is None:
                 continue
 
+            # annotate
             if not annotate_vcf(subset_vcf_file, ref_fasta, gff3, annotated_vcf_file):
                 continue
 
+            # query & calc
             output = query_with_gt_dp(annotated_vcf_file, region)
             if output is None:
                 continue
@@ -194,7 +224,7 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
 
             # add group label columns
             df[group_by] = str(group_value)
-            df["group_label"] = f"{group_value} (n={len(sample_ids)})"
+            df["group_label"] = f"{group_value} (n={len(present)})"
             group_frames.append(df)
 
         if group_frames:
@@ -203,6 +233,8 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
             group_df.to_csv(out_csv, index=False)
             print(f"  Saved CSV for {group_by}={group_value} to {out_csv}")
             all_data.append(group_df)
+        else:
+            print(f"[INFO] {group_by}={group_value}: no variants retained after filtering.")
 
     if not all_data:
         print("No data generated (after DP filtering).")
@@ -215,5 +247,6 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
         combined_out = os.path.join(base_out, f"missense_AF_per_gene_by_{group_by}.csv")
         combined.to_csv(combined_out, index=False)
         print(f"Saved combined CSV to {combined_out}")
+
 
 
