@@ -3,7 +3,7 @@
 Compute allele frequencies for missense variants in drug-resistance genes,
 filtering out sample genotypes with depth DP < min_dp (default 5).
 Groups by an arbitrary metadata column (e.g., country/region/site/year).
-Writes per-group CSVs and one combined CSV. No plotting.
+Writes per-group CSVs and one combined CSV.
 """
 
 import subprocess
@@ -25,16 +25,17 @@ genes = {
 }
 
 # Define gene aliases to match in BCSQ field
+# NOTE: Add PF3D7 IDs where needed; AAT1 commonly appears as PF3D7_0629500 in BCSQ.
 gene_aliases = {
-    "CRT": ["CRT"],
-    "K13": ["K13"],
-    "MDR1": ["MDR1"],
-    "DHFR": ["DHFR", "DHFR-TS"],
-    "DHPS": ["DHPS", "PPPK-DHPS"],
-    "PX1": ["PX1"],
-    "UBP1": ["UBP1"],
+    "CRT":   ["CRT"],
+    "K13":   ["K13"],
+    "MDR1":  ["MDR1"],
+    "DHFR":  ["DHFR", "DHFR-TS"],
+    "DHPS":  ["DHPS", "PPPK-DHPS"],
+    "PX1":   ["PX1"],
+    "UBP1":  ["UBP1"],
     "AP2MU": ["AP2-MU", "AP2MU"],
-    "AAT1": ["AAT1"],
+    "AAT1":  ["AAT1", "PF3D7_0629500"],  # <-- important for your case
 }
 
 def run_cmd(cmd):
@@ -58,11 +59,16 @@ def query_with_gt_dp(vcf, region):
     return run_cmd(cmd)
 
 def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
+    """
+    Recalculate AF using ONLY genotypes with DP >= min_dp.
+    Accept BCSQ gene tokens in either field [1] or [2] (ID vs symbol), case-insensitive.
+    """
     rows = []
     if not output:
         return pd.DataFrame(rows)
 
-    aliases = gene_aliases.get(gene_name, [gene_name])
+    # Normalize alias list to uppercase for robust matching
+    alias_set = {a.upper() for a in gene_aliases.get(gene_name, [gene_name])}
 
     for line in output.strip().split('\n'):
         fields = line.split('\t')
@@ -75,10 +81,12 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
         total_alleles = 0
 
         for tok in sample_tokens:
+            # expect GT:DP
             if ':' not in tok:
                 continue
             gt_str, dp_str = tok.split(':', 1)
 
+            # DP filter
             if dp_str in ('.', ''):
                 continue
             try:
@@ -88,6 +96,7 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
             if dp < min_dp:
                 continue
 
+            # skip missing GT
             if gt_str in ('.', './.', '.|.'):
                 continue
 
@@ -103,14 +112,17 @@ def parse_output_and_recalculate_af(output, gene_name, min_dp=5):
 
         af = alt_count / total_alleles
 
+        # parse BCSQ; match missense + gene alias against either token
         for eff in csq.split(','):
             parts = eff.split('|')
             if len(parts) < 6:
                 continue
             consequence = parts[0].lower()
-            gene = parts[1]
+            gene_tok1 = parts[1].upper() if len(parts) > 1 else ""
+            gene_tok2 = parts[2].upper() if len(parts) > 2 else ""
             aa_change = parts[5] if len(parts) > 5 else f"{ref}>{alt}"
-            if "missense" in consequence and gene in aliases:
+
+            if "missense" in consequence and ({gene_tok1, gene_tok2} & alias_set):
                 rows.append({
                     "gene": gene_name,
                     "pos": int(pos),
@@ -203,4 +215,5 @@ def run(vcf, ref_fasta, gff3, metadata_path, outdir,
         combined_out = os.path.join(base_out, f"missense_AF_per_gene_by_{group_by}.csv")
         combined.to_csv(combined_out, index=False)
         print(f"Saved combined CSV to {combined_out}")
+
 
