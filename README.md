@@ -1,6 +1,8 @@
 # malaria-popgen-toolkit
 A collection of reproducible population genomics workflows for *Plasmodium* species, designed to support transparent, accessible, and scalable malaria genomic analysis.
 
+*Tools and documentation were made for WGS data. Amplicon sequencing is technically not supported at the moment but many of these tools should be compatible with it.*
+
 ## Installation and Prerequisites
 This toolkit has been formatted to interpret and analyse whole genome sequencing (WGS) data that has been processed using an open access *ngs-pipeline* toolkit designed by **VivaxGEN**, available at: 
 
@@ -52,6 +54,11 @@ Further information and tutorials coming soon.
 ## Formatting your input files
 
 ### Input *metadata.tsv* file:
+The input metadata.tsv file should be a tab-deliminated file formatted like the example below. The column "sample_id" is required for all tools. A group, such as "country", "region", or "year" is required for many plotting tools to calculate or plot population-specific information. The geographical mapping tools require "country" information for now.
+
+*The "**fws**" column is optional for some tools but required for others - documentation will be made clear when it is required. Information on how to calculate Fws is provided below.*
+
+
 ![Example Metadata](docs/images/metadata_example.png)
 
 ### Example *input.vcf.gz* file:
