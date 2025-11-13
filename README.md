@@ -60,12 +60,13 @@ The input metadata.tsv file should be a tab-deliminated file formatted like the 
 
 **COLUMN LABELS ARE CASE-SENSITIVE - "sample_id" can *NOT* be "SAMPLE_ID"**
 
-
 ![Example Metadata](docs/images/metadata_example.png)
 
 ### Example *input.vcf.gz* file:
 
 The "sample_id" column in your *metadata.tsv* file, must match the sample names, or IDs, in your VCF file **extactly**.
+
+![Example VCF](docs/images/vcf_example.png)
 
 ## Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
