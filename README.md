@@ -46,10 +46,14 @@ git pull
 python -m pip install -e .
 ```
 
-## Usage and Documentation (work in progress)
+# Usage and Documentation (work in progress)
 Further information and tutorials coming soon.
 
-### How to format your *metadata.tsv* file
+## Formatting your input files
+
+### Input *metadata.tsv* file:
+
+### Example *input_vcf.vcf.gz* file:
 
 ## Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
