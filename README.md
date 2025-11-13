@@ -53,7 +53,7 @@ Further information and tutorials coming soon.
 
 ### Input *metadata.tsv* file:
 
-### Example *input_vcf.vcf.gz* file:
+### Example *input.vcf.gz* file:
 
 ## Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
