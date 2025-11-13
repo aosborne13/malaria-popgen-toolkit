@@ -90,15 +90,15 @@ WILDTYPE_HAPLO = {
 # Country-name canonicalization (aliases -> Natural Earth names)
 # ---------------------------------------------------------------------
 COUNTRY_ALIASES = {
-    # Explicit asks:
+    # Explicit
     "drc": "Democratic Republic of the Congo",
     "gambia": "The Gambia",
-    # Common variants:
+    # Common variants
     "democratic republic of congo": "Democratic Republic of the Congo",
     "congo (kinshasa)": "Democratic Republic of the Congo",
     "congo, the democratic republic of the": "Democratic Republic of the Congo",
     "the gambia": "The Gambia",
-    # Some other frequent alternates you might hit:
+    # Extras
     "ivory coast": "Côte d’Ivoire",
     "cote d'ivoire": "Côte d’Ivoire",
     "swaziland": "Eswatini",
@@ -429,7 +429,6 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     name_col = _country_name_column(region_gdf)
     centroids = _country_centroids(region_gdf)
 
-    # Fixed order/panels: CRT, MDR1, DHFR, DHPS
     gene_order = [g for g in ["CRT", "MDR1", "DHFR", "DHPS"] if g in hap_dict]
     if not gene_order:
         print("[WARN] No data to plot.")
@@ -480,7 +479,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
 
         # Pies
         map_w = xmax - xmin
-        radius_deg = max(0.6, 0.036 * map_w)  # tune size here
+        radius_deg = max(0.6, 0.036 * map_w)  # slightly bigger pies; adjust factor to taste
         for _, row in region_gdf.iterrows():
             country = str(row[name_col])
             if country not in country_counts:
@@ -494,8 +493,22 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
                 continue
             fracs = [cnt.get(h, 0) / total for h in all_haps]
             _draw_pie(ax, (lon, lat), fracs, [hap_colors[h] for h in all_haps], radius_deg)
-            ax.text(lon, lat + radius_deg * 1.4, country, ha="center", va="bottom",
-                    fontsize=8, fontweight="bold")
+
+            # --- Wrapped country labels (2 lines if >2 words) + optional extra offset ---
+            words = country.split()
+            if len(words) > 2:
+                mid = 2 if len(words) > 4 else len(words) // 2
+                wrapped_name = "\n".join([" ".join(words[:mid]), " ".join(words[mid:])])
+            else:
+                wrapped_name = country
+
+            ax.text(
+                lon, lat + radius_deg * 1.5,  # optional extra offset applied
+                wrapped_name,
+                ha="center", va="bottom",
+                fontsize=8, fontweight="bold",
+                linespacing=1.1,
+            )
 
     # Hide any unused axes
     for j in range(len(gene_order), 4):
@@ -506,5 +519,6 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     plt.savefig(out_png, dpi=300)
     plt.close(fig)
     print(f"[OK] Saved map: {out_png}")
+
 
 
