@@ -49,8 +49,6 @@ python -m pip install -e .
 ```
 
 # Usage and Documentation (work in progress)
-Further information and tutorials coming soon.
-
 ## Formatting your input files
 
 ### Input *metadata.tsv* file:
