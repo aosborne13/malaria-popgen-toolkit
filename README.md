@@ -74,8 +74,6 @@ Candidates for *P. vivax* coming soon...
 ### Missense variants on validated and candidate drug resistance genes
 Compute allele frequencies for missense variants in drug-resistance genes, grouping by any metadata column (e.g. country, region, site, or year).
 
-The metadata file **must have a sample_id column** *and* **chosen grouping column**.
-
 #### Included markers...
 
 Validated: K13, CRT, MDR1, DHFR, DHPS
@@ -93,8 +91,8 @@ malaria-pipeline missense-drugres-af \
   --group-by country
 
 ```
-##### Output example
-Coming soon...
+##### Output example - country:
+![Example Drug Resistance](docs/images/drug_res_example.png)
 
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
 Support currently includes maps of Africa, South America, and Southeast Asia. As of now, K13 has not been included in these maps as a wild-type haplotype has not been established.
