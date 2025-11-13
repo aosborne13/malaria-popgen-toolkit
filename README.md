@@ -91,7 +91,9 @@ malaria-pipeline missense-drugres-af \
   --group-by country
 
 ```
-##### Output example - country:
+##### Output example:
+A global dataset run using the "country" group label and a minimum read depth (DP) of 5.
+
 ![Example Drug Resistance](docs/images/drug_res_example.png)
 
 ### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
