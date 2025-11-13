@@ -139,8 +139,8 @@ Below is an example output from the `hapmap-africa` command:
 
 ![Example African haplotype map](docs/images/hapmap_africa_example.png)
 
-# Multiplicity of Infection (MOI) - calculating *Fws* estimates
-MOI, or *Fws*, is a required metric for some downstream processing. This is calculated using *moimix* R-based package, available at: https://github.com/bahlolab/moimix
+# Complexity of Infection (COI) - using *Fws* estimates
+*Fws*, is a required metric for some downstream WGS processing. This can be calculated using *moimix* R-based package, available at: https://github.com/bahlolab/moimix
 
 User-friendly R-script for running filtered VCF files through *moimix* available from the *malaria-hub* pipeline.
 
