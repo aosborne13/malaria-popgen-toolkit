@@ -65,6 +65,8 @@ The input metadata.tsv file should be a tab-deliminated file formatted like the 
 
 ### Example *input.vcf.gz* file:
 
+The "sample_id" column in your *metadata.tsv* file, must match the sample names, or IDs, in your VCF file **extactly**.
+
 ## Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
 
