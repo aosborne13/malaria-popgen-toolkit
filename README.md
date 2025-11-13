@@ -72,13 +72,13 @@ The "sample_id" column in your *metadata.tsv* file, must match the sample names,
 
 ![Example VCF](docs/images/vcf_example.png)
 
-## Drug Resistance - *P. falciparum*
+# Drug Resistance - *P. falciparum*
 Candidates for *P. vivax* coming soon...
 
-### Missense variants on validated and candidate drug resistance genes
+## Missense variants on validated and candidate drug resistance genes
 Compute allele frequencies for missense variants in drug-resistance genes, grouping by any metadata column (e.g. country, region, site, or year).
 
-#### Included markers...
+### Included markers...
 
 Validated: K13, CRT, MDR1, DHFR, DHPS
 
@@ -95,12 +95,12 @@ malaria-pipeline missense-drugres-af \
   --group-by country
 
 ```
-##### Output example:
+#### Output example:
 A global dataset run using the "country" group label and a minimum read depth (DP) of 5.
 
 ![Example Drug Resistance](docs/images/drug_res_example.png)
 
-### Haplotype analysis for CRT, MDR1, DHFR, and DHPS
+## Haplotype analysis for CRT, MDR1, DHFR, and DHPS
 Support currently includes maps of Africa, South America, and Southeast Asia. As of now, K13 has not been included in these maps as a wild-type haplotype has not been established.
 
 Here is an example of how to run the commands to generate haplotype maps depending on the region you are working in:
@@ -135,20 +135,20 @@ malaria-pipeline hapmap-seasia \
 
 ```
 
-#### Example output of the African haplotype map
+### Example output of the African haplotype map
 
 Below is an example output from the `hapmap-africa` command:
 
 ![Example African haplotype map](docs/images/hapmap_africa_example.png)
 
-## Multiplicity of Infection (MOI) - calculating *Fws* estimates
+# Multiplicity of Infection (MOI) - calculating *Fws* estimates
 MOI, or *Fws*, is a required metric for some downstream processing. This is calculated using *moimix* R-based package, available at: https://github.com/bahlolab/moimix
 
 User-friendly R-script for running filtered VCF files through *moimix* available from the *malaria-hub* pipeline.
 
 https://github.com/LSHTMPathogenSeqLab/malaria-hub/tree/master/moi
 
-### Plot *Fws* by Population
+## Plot *Fws* by Population
 Plotting *Fws* by population can be an intuitive way to visualise diversity between populations, either between different regions or the same region over different time points. Changes in diversity can give insight into transmission intensity. An *Fws* estimate > 0.95 generally correlates to a monoclonal infection and is more commonly identified in low transmission regions. An isolate with an *Fws* < 0.95 likely consists of multiple clones, with the diversity or number of clones increasing as he *Fws* value decreases.
 
 The default plotting script will automatically search for columns labeled "country", "region", and "year" in your *metadata.tsv* file. A column with *Fws* values is **required** for this script - the column should be named **"fws"**.
@@ -168,27 +168,28 @@ malaria-pipeline fws-dotplot \
 
 To adjust the size and dimesnsions of your plot, use this option:
 ```
-# Control size
 malaria-pipeline fws-dotplot \
   --metadata /path/to/metadata.tsv \
   --group-by country \
   --width 12 --height 6 \
   --outdir fws_plots
 ```
+### Output
+![Example fws](docs/images/fws_plot_example.png)
 
-## PCA
+# PCA
 
-## Trees
+# Trees
 
-## IBD
+# IBD
 
-## Selection
-### selection using IBD
+# Selection
+## selection using IBD
 
-### iHS and XP-EHH
+## iHS and XP-EHH
 
-### Fst
+## Fst
 
-## Structural variant detection
+# Structural variant detection
 
-## Admixture ancestry analysis
+# Admixture ancestry analysis
