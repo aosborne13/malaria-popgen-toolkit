@@ -480,7 +480,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
 
         # Pies
         map_w = xmax - xmin
-        radius_deg = max(0.6, 0.028 * map_w)  # tune size here
+        radius_deg = max(0.6, 0.036 * map_w)  # tune size here
         for _, row in region_gdf.iterrows():
             country = str(row[name_col])
             if country not in country_counts:
