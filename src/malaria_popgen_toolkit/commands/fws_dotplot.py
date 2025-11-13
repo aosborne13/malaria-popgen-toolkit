@@ -81,7 +81,7 @@ def _plot_one_group(df: pd.DataFrame, group_var: str, out_pdf: str,
     for _, row in summary.iterrows():
         x = row["group_x"]
         y = row["mean_fws"]
-        ax.hlines(y, x - 0.25, x + 0.25, colors="gray25", linewidth=1.0, zorder=3)
+        ax.hlines(y, x - 0.25, x + 0.25, colors="0.25", linewidth=1.0, zorder=3)
 
     # N labels at top (~1.02)
     for _, row in summary.iterrows():
