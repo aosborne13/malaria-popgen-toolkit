@@ -58,7 +58,7 @@ The input metadata.tsv file should be a tab-deliminated file formatted like the 
 
 *The "**fws**" column is optional for some tools but required for others - documentation will be made clear when it is required. Information on how to calculate Fws is provided below.*
 
-**COLUMN LABELS ARE CASE-SENSITIVE - "sample_id" can NOT be "SAMPLE_ID"**
+**COLUMN LABELS ARE CASE-SENSITIVE - "sample_id" can *NOT* be "SAMPLE_ID"**
 
 
 ![Example Metadata](docs/images/metadata_example.png)
