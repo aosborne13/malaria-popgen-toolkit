@@ -172,7 +172,7 @@ malaria-pipeline fws-dotplot \
   --width 12 --height 6 \
   --outdir fws_plots
 ```
-### Output
+### Output:
 ![Example fws](docs/images/fws_plot_example.png)
 
 # PCA
