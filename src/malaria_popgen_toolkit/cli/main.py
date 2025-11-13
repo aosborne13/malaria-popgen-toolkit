@@ -2,16 +2,22 @@
 """
 Main CLI entry point for the malaria-popgen-toolkit.
 Commands:
-  - missense-drugres-af
-  - hapmap-africa
-  - hapmap-samerica
-  - hapmap-seasia
+  - missense-drugres-af   (AF of missense drug-res variants with DP filter; flexible grouping)
+  - hapmap-africa         (haplotype map for Africa)
+  - hapmap-samerica       (haplotype map for South America)
+  - hapmap-seasia         (haplotype map for Southeast Asia)
+  - fws-dotplot           (Fws jittered dot plots by metadata groups)
 """
 
 import argparse
 import sys
 import shutil
-from malaria_popgen_toolkit.commands import missense_drugres_af, haplotype_map_region
+
+from malaria_popgen_toolkit.commands import (
+    missense_drugres_af,
+    haplotype_map_region,
+    fws_dotplot,
+)
 
 
 def require_tool(name: str):
@@ -28,16 +34,16 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     # -------------------------------------------------------------------------
-    # Command: missense-drugres-af (VCF + DP filtering)
+    # missense-drugres-af
     # -------------------------------------------------------------------------
     p1 = sub.add_parser(
         "missense-drugres-af",
-        help="Compute missense allele frequencies in drug-resistance genes"
+        help="Compute missense allele frequencies in drug-resistance genes (DP filter)"
     )
     p1.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
     p1.add_argument("--ref", required=True, help="Reference FASTA file")
     p1.add_argument("--gff3", required=True, help="GFF3 annotation file")
-    p1.add_argument("--metadata", required=True, help="TSV with 'sample_id' and grouping column")
+    p1.add_argument("--metadata", required=True, help="TSV with 'sample_id' and grouping column(s)")
     p1.add_argument("--outdir", default="output_missense", help="Output directory")
     p1.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample read depth (DP)")
     p1.add_argument(
@@ -47,57 +53,62 @@ def main():
     )
 
     # -------------------------------------------------------------------------
-    # Command: hapmap-africa (VCF + DP filtering)
+    # hapmap-africa / -samerica / -seasia
     # -------------------------------------------------------------------------
     p2 = sub.add_parser(
         "hapmap-africa",
-        help="Plot haplotype pies for Africa (VCF + DP filter) and export per-gene haplotype frequencies"
+        help="Plot haplotype pies for Africa from VCF + metadata"
     )
     p2.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
-    p2.add_argument("--metadata", required=True, help="TSV with sample metadata")
-    p2.add_argument("--outdir", default="hapmap_africa_output", help="Output directory")
-    p2.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample read depth (DP)")
-    p2.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
-    p2.add_argument("--country-col", default="country", help="Metadata column with country")
+    p2.add_argument("--metadata", required=True, help="TSV with samples and country column")
+    p2.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
+    p2.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
+    p2.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
+    p2.add_argument("--country-col", default="country", help="Country column name in metadata")
 
-    # -------------------------------------------------------------------------
-    # Command: hapmap-samerica (South America; VCF + DP filtering)
-    # -------------------------------------------------------------------------
     p3 = sub.add_parser(
         "hapmap-samerica",
-        help="Plot haplotype pies for South America (VCF + DP filter) and export per-gene haplotype frequencies"
+        help="Plot haplotype pies for South America from VCF + metadata"
     )
     p3.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
-    p3.add_argument("--metadata", required=True, help="TSV with sample metadata")
-    p3.add_argument("--outdir", default="hapmap_samerica_output", help="Output directory")
-    p3.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample read depth (DP)")
-    p3.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
-    p3.add_argument("--country-col", default="country", help="Metadata column with country")
+    p3.add_argument("--metadata", required=True, help="TSV with samples and country column")
+    p3.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
+    p3.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
+    p3.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
+    p3.add_argument("--country-col", default="country", help="Country column name in metadata")
 
-    # -------------------------------------------------------------------------
-    # Command: hapmap-seasia (Southeast Asia; VCF + DP filtering)
-    # -------------------------------------------------------------------------
     p4 = sub.add_parser(
         "hapmap-seasia",
-        help="Plot haplotype pies for Southeast Asia (VCF + DP filter) and export per-gene haplotype frequencies"
+        help="Plot haplotype pies for Southeast Asia from VCF + metadata"
     )
     p4.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
-    p4.add_argument("--metadata", required=True, help="TSV with sample metadata")
-    p4.add_argument("--outdir", default="hapmap_seasia_output", help="Output directory")
-    p4.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample read depth (DP)")
-    p4.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
-    p4.add_argument("--country-col", default="country", help="Metadata column with country")
+    p4.add_argument("--metadata", required=True, help="TSV with samples and country column")
+    p4.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
+    p4.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
+    p4.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
+    p4.add_argument("--country-col", default="country", help="Country column name in metadata")
 
     # -------------------------------------------------------------------------
-    # Parse and dispatch
+    # fws-dotplot
     # -------------------------------------------------------------------------
+    p5 = sub.add_parser(
+        "fws-dotplot",
+        help="Create jittered dot plots of Fws by metadata grouping columns"
+    )
+    p5.add_argument("--metadata", required=True, help="TSV with at least 'fws' and grouping columns")
+    p5.add_argument("--outdir", default="fws_plots", help="Output directory for PDFs")
+    p5.add_argument(
+        "--group-by",
+        action="append",
+        help="Metadata column to group by (repeat for multiple). Default tries: region, country, year."
+    )
+    p5.add_argument("--width", type=float, default=10.0, help="Plot width (inches)")
+    p5.add_argument("--height", type=float, default=6.0, help="Plot height (inches)")
+
     args = parser.parse_args()
 
-    # All current commands query VCFs via bcftools
-    if args.command in ("missense-drugres-af", "hapmap-africa", "hapmap-samerica", "hapmap-seasia"):
-        require_tool("bcftools")
-
     if args.command == "missense-drugres-af":
+        require_tool("bcftools")
         missense_drugres_af.run(
             vcf=args.vcf,
             ref_fasta=args.ref,
@@ -108,9 +119,15 @@ def main():
             group_by=args.group_by,
         )
 
-    elif args.command == "hapmap-africa":
+    elif args.command in ("hapmap-africa", "hapmap-samerica", "hapmap-seasia"):
+        require_tool("bcftools")
+        region = {
+            "hapmap-africa": "africa",
+            "hapmap-samerica": "south_america",
+            "hapmap-seasia": "southeast_asia",
+        }[args.command]
         haplotype_map_region.run(
-            region="africa",
+            region=region,
             vcf=args.vcf,
             metadata_path=args.metadata,
             outdir=args.outdir,
@@ -119,26 +136,13 @@ def main():
             country_col=args.country_col,
         )
 
-    elif args.command == "hapmap-samerica":
-        haplotype_map_region.run(
-            region="south_america",
-            vcf=args.vcf,
+    elif args.command == "fws-dotplot":
+        fws_dotplot.run(
             metadata_path=args.metadata,
             outdir=args.outdir,
-            min_dp=args.min_dp,
-            sample_col=args.sample_col,
-            country_col=args.country_col,
-        )
-
-    elif args.command == "hapmap-seasia":
-        haplotype_map_region.run(
-            region="southeast_asia",
-            vcf=args.vcf,
-            metadata_path=args.metadata,
-            outdir=args.outdir,
-            min_dp=args.min_dp,
-            sample_col=args.sample_col,
-            country_col=args.country_col,
+            group_by=args.group_by,
+            width=args.width,
+            height=args.height,
         )
 
 
