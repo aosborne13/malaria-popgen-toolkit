@@ -157,7 +157,7 @@ malaria-pipeline fws-dotplot \
   --metadata /path/to/metadata.tsv \
   --outdir fws_plots
 ```
-To select specific columns for plotting, or a group unique to your dataset, specify the group, or groups, use this option:
+To select specific columns for plotting, or a group unique to your dataset, specify the group, or groups, using this option:
 
 ```
 malaria-pipeline fws-dotplot \
