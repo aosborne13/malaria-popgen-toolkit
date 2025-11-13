@@ -40,6 +40,11 @@ Step 5: Verify installation.
 ```
 malaria-pipeline --help
 ```
+To update, activate the *malaria-popgen* enironment and then run the following:
+```
+git pull
+python -m pip install -e .
+```
 
 ## Usage and Documentation (work in progress)
 Further information and tutorials coming soon.
