@@ -10,7 +10,7 @@ https://github.com/vivaxgen/ngs-pipeline
 
 Courtesy of Hidayat Trimarsanto (Anto) and Ludwig Kian Soon Hoon.
 
-Downstream processing was also carried out using the *fastq2matrix* and *malaria-hub* pipeline, courtesy of the **LSHTMPathogenSeqLab**, available at: 
+Downstream processing can also be carried out using the *fastq2matrix* and *malaria-hub* pipeline, courtesy of the **LSHTMPathogenSeqLab**, available at: 
 
 https://github.com/LSHTMPathogenSeqLab/fastq2matrix 
 
