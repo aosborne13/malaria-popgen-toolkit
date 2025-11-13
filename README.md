@@ -52,6 +52,7 @@ Further information and tutorials coming soon.
 ## Formatting your input files
 
 ### Input *metadata.tsv* file:
+![Example Metadata](docs/images/metadata_example.png)
 
 ### Example *input.vcf.gz* file:
 
