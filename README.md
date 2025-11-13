@@ -60,6 +60,10 @@ The input metadata.tsv file should be a tab-deliminated file formatted like the 
 
 **COLUMN LABELS ARE CASE-SENSITIVE - "sample_id" can *NOT* be "SAMPLE_ID"**
 
+Columns unique to your dataset (such as a sampling site) can be included in your *metadata.tsv* file.
+
+*Remember not to include spaces in your column names - replace any spaces with an underscore "_" or a dash "-" to prevent errors. Example: Use "sample_site" or "sample-site", **NOT** "sample site"*
+
 ![Example Metadata](docs/images/metadata_example.png)
 
 ### Example *input.vcf.gz* file:
@@ -146,6 +150,31 @@ https://github.com/LSHTMPathogenSeqLab/malaria-hub/tree/master/moi
 
 ### Plot *Fws* by Population
 Plotting *Fws* by population can be an intuitive way to visualise diversity between populations, either between different regions or the same region over different time points. Changes in diversity can give insight into transmission intensity. An *Fws* estimate > 0.95 generally correlates to a monoclonal infection and is more commonly identified in low transmission regions. An isolate with an *Fws* < 0.95 likely consists of multiple clones, with the diversity or number of clones increasing as he *Fws* value decreases.
+
+The default plotting script will automatically search for columns labeled "country", "region", and "year" in your *metadata.tsv* file. A column with *Fws* values is **required** for this script - the column should be named **"fws"**.
+```
+malaria-pipeline fws-dotplot \
+  --metadata /path/to/metadata.tsv \
+  --outdir fws_plots
+```
+To select specific columns for plotting, or a group unique to your dataset, specify the group, or groups, use this option:
+
+```
+malaria-pipeline fws-dotplot \
+  --metadata /path/to/metadata.tsv \
+  --group-by clinical_trial --group-by sample_site \
+  --outdir fws_plots_trial
+```
+
+To adjust the size and dimesnsions of your plot, use this option:
+```
+# Control size
+malaria-pipeline fws-dotplot \
+  --metadata /path/to/metadata.tsv \
+  --group-by country \
+  --width 12 --height 6 \
+  --outdir fws_plots
+```
 
 ## PCA
 
