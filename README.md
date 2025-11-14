@@ -205,6 +205,7 @@ malaria-pipeline pca \
   --outdir pca_plots
 ```
 Running using a filtered VCF file:
+
 *Note: ```--max-sample-missing``` currently only works if you supply a ```--matrix```*
 ```
 malaria-pipeline pca \
