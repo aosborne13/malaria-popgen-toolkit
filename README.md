@@ -212,7 +212,9 @@ malaria-pipeline pca \
   --group-by country \
   --outdir pca_plots
 ```
-*Note: ```--max-sample-missing``` currently only works if you supply a ```--matrix```; only use a filtered VCF file (this might change in future)*
+*Note: 
+```--max-sample-missing``` currently only works if you supply a ```--matrix```
+Only use a filtered VCF file (this might change in future)*
 
 ### Output
 The command produces:
