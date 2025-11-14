@@ -178,9 +178,9 @@ malaria-pipeline fws-dotplot \
 
 ## Distance-based PCA/PCoA
 This command performs pairwise SNP-difference distances using a Manhattan metric:
-`- Missing genotypes (N or .) are allowed
-`- Loci missing in one sample are ignored for that pair
-`- Distances are scaled following the behavior of the R-package *amap* ```amap::Dist```
+- Missing genotypes (N or .) are allowed
+- Loci missing in one sample are ignored for that pair
+- Distances are scaled following the behavior of the R-package *amap* ```amap::Dist```
 
 The PCoA / classical multidimensional-scaling (MDS) is run on the distance matrix, similar to R’s ```cmdscale()```
 ### Input
@@ -216,8 +216,8 @@ malaria-pipeline pca \
 
 ### Output
 The command produces:
-`- PCA/PCoA plots (in PDF format) for each grouping variable (e.g. year, country, region, or unique column value)
-`- One plot per principal component (PC) pair (default: PC1–PC2, PC1–PC3), specific component pairs can be requested
+- PCA/PCoA plots (in PDF format) for each grouping variable (e.g. year, country, region, or unique column value)
+- One plot per principal component (PC) pair (default: PC1–PC2, PC1–PC3), specific component pairs can be requested
 
 
 ## Trees
