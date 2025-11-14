@@ -183,6 +183,7 @@ This command performs pairwise SNP-difference distances using a Manhattan metric
 - Distances are scaled following the behavior of the R-package *amap* ```amap::Dist```
 
 The PCoA / classical multidimensional-scaling (MDS) is run on the distance matrix, similar to R’s ```cmdscale()```
+
 ### Input
 You can provide either:
 
@@ -192,7 +193,7 @@ or
 
 ```--vcf``` — a multi-sample VCF (which is internally converted into numeric genotypes)
 
-Metadata must include a sample column that matches VCF/matrix sample names and grouping columns (same as described above).
+Metadata should be formatted as described above.
 
 Example - running this tool using a binary matrix:
 ```
