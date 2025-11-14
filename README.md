@@ -176,7 +176,49 @@ malaria-pipeline fws-dotplot \
 #### Output:
 ![Example fws](docs/images/fws_plot_example.png)
 
-## PCA
+## Distance-based PCA/PCoA
+This command performs pairwise SNP-difference distances using a Manhattan metric:
+`- Missing genotypes (N or .) are allowed
+`- Loci missing in one sample are ignored for that pair
+`- Distances are scaled following the behavior of the R-package *amap* ```amap::Dist```
+
+The PCoA / classical multidimensional-scaling (MDS) is run on the distance matrix, similar to R’s ```cmdscale()```
+### Input
+You can provide either:
+
+```--matrix``` — a binary matrix (.tsv) with values 0, 0.5, 1, or N,
+
+or
+
+```--vcf``` — a multi-sample VCF (which is internally converted into numeric genotypes)
+
+Metadata must include a sample column that matches VCF/matrix sample names and grouping columns (same as described above).
+
+Example - running this tool using a binary matrix:
+```
+malaria-pipeline pca \
+  --matrix popgen_africa.mat.bin \
+  --metadata metadata.tsv \
+  --group-by country region year \
+  --pcs 1,2 1,3 \
+  --max-sample-missing 0.2 \
+  --outdir pca_plots
+```
+Running using a filtered VCF file:
+```
+malaria-pipeline pca \
+  --vcf popgen_africa.vcf.gz \
+  --metadata metadata.tsv \
+  --group-by country \
+  --outdir pca_plots
+```
+*Note: ```--max-sample-missing``` currently only works if you supply a ```--matrix```; only use a filtered VCF file (this might change in future)*
+
+### Output
+The command produces:
+`- PCA/PCoA plots (in PDF format) for each grouping variable (e.g. year, country, region, or unique column value)
+`- One plot per principal component (PC) pair (default: PC1–PC2, PC1–PC3), specific component pairs can be requested
+
 
 ## Trees
 
