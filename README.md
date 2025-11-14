@@ -184,7 +184,7 @@ This command performs pairwise SNP-difference distances using a Manhattan metric
 
 The PCoA / classical multidimensional-scaling (MDS) is run on the distance matrix, similar to R’s ```cmdscale()```
 
-### Input
+### Input:
 You can provide either:
 
 ```--matrix``` — a binary matrix (.tsv) with values 0, 0.5, 1, or N,
@@ -195,6 +195,7 @@ or
 
 Metadata should be formatted as described above.
 
+### Running:
 Example - running this tool using a binary matrix:
 ```
 malaria-pipeline pca \
@@ -216,7 +217,7 @@ malaria-pipeline pca \
   --outdir pca_plots
 ```
 
-### Output
+### Output:
 The command produces:
 - PCA/PCoA plots (in PDF format) for each grouping variable (e.g. year, country, region, or unique column value)
 - One plot per principal component (PC) pair (default: PC1–PC2, PC1–PC3), specific component pairs can be requested
