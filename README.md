@@ -206,7 +206,7 @@ malaria-pipeline pca \
 ```
 Running using a filtered VCF file:
 
-*Note: ```--max-sample-missing``` currently only works if you supply a ```--matrix```*
+*Note: ```--max-sample-missing``` currently only works if you supply a ```--matrix```, not a VCF file*
 ```
 malaria-pipeline pca \
   --vcf popgen_africa.vcf.gz \
