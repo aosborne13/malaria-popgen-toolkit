@@ -7,6 +7,7 @@ Commands:
   - hapmap-samerica       (haplotype map for South America)
   - hapmap-seasia         (haplotype map for Southeast Asia)
   - fws-dotplot           (Fws jittered dot plots by metadata groups)
+  - pca                   (Distance-based PCA/PCoA from binary matrix or VCF)
 """
 
 import argparse
@@ -17,6 +18,7 @@ from malaria_popgen_toolkit.commands import (
     missense_drugres_af,
     haplotype_map_region,
     fws_dotplot,
+    pca_plot,
 )
 
 
@@ -53,40 +55,23 @@ def main():
     )
 
     # -------------------------------------------------------------------------
-    # hapmap-africa / -samerica / -seasia
+    # hapmap-africa / samerica / seasia
     # -------------------------------------------------------------------------
-    p2 = sub.add_parser(
-        "hapmap-africa",
-        help="Plot haplotype pies for Africa from VCF + metadata"
-    )
-    p2.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
-    p2.add_argument("--metadata", required=True, help="TSV with samples and country column")
-    p2.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
-    p2.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
-    p2.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
-    p2.add_argument("--country-col", default="country", help="Country column name in metadata")
-
-    p3 = sub.add_parser(
-        "hapmap-samerica",
-        help="Plot haplotype pies for South America from VCF + metadata"
-    )
-    p3.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
-    p3.add_argument("--metadata", required=True, help="TSV with samples and country column")
-    p3.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
-    p3.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
-    p3.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
-    p3.add_argument("--country-col", default="country", help="Country column name in metadata")
-
-    p4 = sub.add_parser(
-        "hapmap-seasia",
-        help="Plot haplotype pies for Southeast Asia from VCF + metadata"
-    )
-    p4.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
-    p4.add_argument("--metadata", required=True, help="TSV with samples and country column")
-    p4.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
-    p4.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
-    p4.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
-    p4.add_argument("--country-col", default="country", help="Country column name in metadata")
+    for cmd, region in [
+        ("hapmap-africa", "africa"),
+        ("hapmap-samerica", "south_america"),
+        ("hapmap-seasia", "southeast_asia"),
+    ]:
+        px = sub.add_parser(
+            cmd,
+            help=f"Plot haplotype pies for {region.replace('_', ' ').title()} from VCF + metadata"
+        )
+        px.add_argument("--vcf", required=True, help="Input VCF (bgzipped)")
+        px.add_argument("--metadata", required=True, help="TSV with samples and country column")
+        px.add_argument("--outdir", required=True, help="Output directory for map + CSVs")
+        px.add_argument("--min-dp", type=int, default=5, help="Minimum per-sample DP for hap calls")
+        px.add_argument("--sample-col", default="sample_id", help="Sample column name in metadata")
+        px.add_argument("--country-col", default="country", help="Country column in metadata")
 
     # -------------------------------------------------------------------------
     # fws-dotplot
@@ -100,13 +85,46 @@ def main():
     p5.add_argument(
         "--group-by",
         action="append",
-        help="Metadata column to group by (repeat for multiple). Default tries: region, country, year."
+        help="Metadata column to group by (repeat for multiple). "
+             "Default tries: region, country, year."
     )
     p5.add_argument("--width", type=float, default=10.0, help="Plot width (inches)")
     p5.add_argument("--height", type=float, default=6.0, help="Plot height (inches)")
 
+    # -------------------------------------------------------------------------
+    # PCA (new)
+    # -------------------------------------------------------------------------
+    p6 = sub.add_parser(
+        "pca",
+        help="Distance-based PCA/PCoA from genotype matrix or VCF (Manhattan SNP differences)"
+    )
+
+    p6.add_argument("--matrix", help="Binary genotype matrix (.tsv) with samples as columns")
+    p6.add_argument("--vcf", help="VCF file to convert into genotype matrix")
+    p6.add_argument("--metadata", required=True, help="TSV with sample metadata")
+    p6.add_argument("--outdir", default="pca_plots", help="Output directory for PCA plots")
+    p6.add_argument("--sample-col", default="sample", help="Metadata sample column")
+    p6.add_argument(
+        "--group-by",
+        nargs="+",
+        help="Metadata columns to color by. Default tries region, country, year."
+    )
+    p6.add_argument(
+        "--pcs",
+        nargs="+",
+        help="PC pairs to plot, e.g. --pcs 1,2 1,3 (default: 1,2 and 1,3)"
+    )
+    p6.add_argument(
+        "--max-sample-missing",
+        type=float,
+        help="Drop samples with >X fraction missing (e.g., 0.2)"
+    )
+
     args = parser.parse_args()
 
+    # -------------------------------------------------------------------------
+    # HANDLERS
+    # -------------------------------------------------------------------------
     if args.command == "missense-drugres-af":
         require_tool("bcftools")
         missense_drugres_af.run(
@@ -145,8 +163,21 @@ def main():
             height=args.height,
         )
 
+    elif args.command == "pca":
+        pca_plot.run(
+            matrix=args.matrix,
+            vcf=args.vcf,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            sample_col=args.sample_col,
+            group_by=args.group_by,
+            pcs=args.pcs,
+            max_sample_missing=args.max_sample_missing,
+        )
+
 
 if __name__ == "__main__":
     main()
+
 
 
