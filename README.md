@@ -196,6 +196,8 @@ or
 Metadata should be formatted as described above.
 
 ### Running:
+Run time will vary depending on the sizer of the dataset - memory limits have been placed to promote running on local machines (vs. HPCs) when necessary.
+
 Example - running this tool using a binary matrix:
 ```
 malaria-pipeline pca \
