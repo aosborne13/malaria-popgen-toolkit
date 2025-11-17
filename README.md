@@ -66,7 +66,7 @@ Columns unique to your dataset (such as a sampling site) can be included in your
 
 ### Example *input.vcf.gz* file:
 
-The "sample_id" column in your *metadata.tsv* file, must match the sample names, or IDs, in your VCF file **extactly**.
+The "sample_id" column in your *metadata.tsv* file, must match the sample names, or IDs, in your VCF file **exactly**.
 
 ![Example VCF](docs/images/vcf_example.png)
 
