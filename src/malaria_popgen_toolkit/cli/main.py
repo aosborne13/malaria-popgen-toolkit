@@ -92,7 +92,7 @@ def main():
     p5.add_argument("--height", type=float, default=6.0, help="Plot height (inches)")
 
     # -------------------------------------------------------------------------
-    # PCA (new)
+    # PCA (distance-based PCoA)
     # -------------------------------------------------------------------------
     p6 = sub.add_parser(
         "pca",
@@ -103,7 +103,11 @@ def main():
     p6.add_argument("--vcf", help="VCF file to convert into genotype matrix")
     p6.add_argument("--metadata", required=True, help="TSV with sample metadata")
     p6.add_argument("--outdir", default="pca_plots", help="Output directory for PCA plots")
-    p6.add_argument("--sample-col", default="sample", help="Metadata sample column")
+    p6.add_argument(
+        "--sample-col",
+        default="sample_id",
+        help="Metadata sample column (default: 'sample_id')"
+    )
     p6.add_argument(
         "--group-by",
         nargs="+",
@@ -117,7 +121,7 @@ def main():
     p6.add_argument(
         "--max-sample-missing",
         type=float,
-        help="Drop samples with >X fraction missing (e.g., 0.2)"
+        help="Drop samples with >X fraction missing (e.g., 0.3)"
     )
 
     args = parser.parse_args()
@@ -178,6 +182,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
