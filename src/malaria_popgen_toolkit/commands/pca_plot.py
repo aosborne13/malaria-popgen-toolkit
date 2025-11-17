@@ -299,7 +299,7 @@ def run(
     vcf: Optional[str],
     metadata_path: str,
     outdir: str = "pca_plots",
-    sample_col: str = "sample",
+    sample_col: str = "sample_id",
     group_by: Optional[List[str]] = None,
     max_sample_missing: Optional[float] = None,
     pcs: Optional[List[str]] = None,
