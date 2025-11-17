@@ -73,26 +73,50 @@ def _load_matrix(matrix_path: str, metadata: pd.DataFrame, sample_col: str):
       - 'chr','pos','ref' (optional; will be dropped if present)
       - then per-sample columns
     Values: 0, 0.5, 1 or 'N' for missing.
+
+    This version reads directly into float32 to reduce memory usage.
     """
-    df = pd.read_csv(matrix_path, sep="\t", dtype=str)
-    cols = df.columns.tolist()
+    # First pass: just get columns
+    header_df = pd.read_csv(matrix_path, sep="\t", nrows=0)
+    cols = header_df.columns.tolist()
+
     start_idx = 0
     lower = [c.lower() for c in cols[:3]]
     if len(cols) >= 3 and lower == ["chr", "pos", "ref"]:
         start_idx = 3
-    sample_cols = cols[start_idx:]
+    all_sample_cols = cols[start_idx:]
 
     meta_samples = metadata[sample_col].astype(str).tolist()
-    sample_cols = _intersect_ordered(meta_samples, sample_cols)
+    sample_cols = _intersect_ordered(meta_samples, all_sample_cols)
     if not sample_cols:
         raise SystemExit("No overlapping samples between matrix and metadata.")
 
-    # Convert to float, 'N' -> NaN
-    M = df[sample_cols].replace({"N": np.nan}).apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-    # M: variants x samples -> X: samples x variants
+    # Build dtype dict: non-sample columns as 'category' or 'string',
+    # sample columns as 'float32'. We read everything in one pass.
+    dtype_map = {c: "string" for c in cols[:start_idx]}
+    for c in sample_cols:
+        dtype_map[c] = "float32"
+
+    # Read full matrix; only columns we care about
+    df = pd.read_csv(
+        matrix_path,
+        sep="\t",
+        usecols=cols[:start_idx] + sample_cols,
+        dtype=dtype_map,
+        na_values=["N"],
+    )
+
+    # Extract sample matrix as float32, variants x samples
+    M = df[sample_cols].to_numpy(dtype="float32")
+
+    # Transpose to samples x variants
     X = M.T
+
+    # Metadata subset in same sample order
     meta_sub = metadata.set_index(sample_col).loc[sample_cols].reset_index()
+
     return X, sample_cols, meta_sub
+
 
 
 def _load_vcf_as_matrix(vcf_path: str, metadata: pd.DataFrame, sample_col: str):
