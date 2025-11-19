@@ -32,7 +32,7 @@ gene_aliases = {
     "MDR1":  ["MDR1"],
     "DHFR":  ["DHFR", "DHFR-TS"],
     "DHPS":  ["DHPS", "PPPK-DHPS"],
-    "PX1":   ["PX1"],
+    "PX1":   ["PX1", "PF3D7_0720700"],
     "UBP1":  ["UBP1"],
     "AP2MU": ["AP2-MU", "AP2MU"],
     "AAT1":  ["AAT1", "PF3D7_0629500"],
