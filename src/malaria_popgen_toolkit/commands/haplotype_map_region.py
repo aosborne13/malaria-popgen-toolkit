@@ -44,6 +44,8 @@ GENE_CODON_POSITIONS: Dict[str, Dict[str, Dict[int, Tuple[int, str, str]]]] = {
             403596: (72, 'C', 'R'),
             403599: (73, 'V', 'F'),
             403602: (74, 'M', 'I'),
+            # This variant spans the 74–76 block (74MNK>74IET) at a different pos.
+            # We handle its effect in the combined hap string post-hoc.
             403618: (74, 'MNK', 'IET'),
             403605: (75, 'N', 'E'),
             403625: (76, 'K', 'T'),
@@ -111,7 +113,7 @@ def _norm(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
-def _canonical_country_name(user_name: str, shape_names: list[str]) -> str | None:
+def _canonical_country_name(user_name: str, shape_names: List[str]) -> str | None:
     """Return shapefile country name that best matches user_name."""
     if user_name in shape_names:
         return user_name
@@ -278,6 +280,7 @@ def _haplotypes_for_gene(
 
     ordered_positions = sorted(pos_map.keys(), key=lambda p: pos_map[p][0])
     hap_by_sample: Dict[str, str] = {}
+
     for s in samples:
         aaseq = []
         for p in ordered_positions:
@@ -292,7 +295,25 @@ def _haplotypes_for_gene(
                 continue
             alt_ct, _ = parsed
             aaseq.append(mutAA if alt_ct > 0 else refAA)
-        hap_by_sample[s] = ''.join(aaseq)
+        hap = ''.join(aaseq)
+        hap_by_sample[s] = hap
+
+    # --- CRT-specific post-processing: collapse weird CVMMNKNK / CVMIETNT to CVMNK / CVIET ---
+    if gene.upper() == "CRT":
+        fixed: Dict[str, str] = {}
+        for s, hap in hap_by_sample.items():
+            if len(hap) > 5:
+                # Empirically: we get patterns like CVMMNKNK or CVMIETNT
+                #  hap[0:2] -> positions 72–73 (CV)
+                #  hap[3:6] -> the 74–76 block (MNK or IET)
+                try:
+                    fixed[s] = hap[0:2] + hap[3:6]
+                except Exception:
+                    # Fallback: keep as-is if something unexpected happens
+                    fixed[s] = hap
+            else:
+                fixed[s] = hap
+        hap_by_sample = fixed
 
     return hap_by_sample
 
@@ -462,8 +483,11 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
         colors = plt.cm.tab20.colors
         hap_colors = {h: colors[j % len(colors)] for j, h in enumerate(all_haps)}
 
-        # Legend with codon numbers
-        codon_numbers = [str(v[0]) for v in GENE_CODON_POSITIONS[gene]["positions"].values()]
+        # Legend with unique codon numbers
+        codon_numbers = sorted(
+            {v[0] for v in GENE_CODON_POSITIONS[gene]["positions"].values()}
+        )
+        codon_numbers_str = [str(c) for c in codon_numbers]
         legend_handles = [
             mpatches.Patch(color=hap_colors[h],
                            label=f"{h}{' (WT)' if WILDTYPE_HAPLO.get(gene) == h else ''}")
@@ -473,14 +497,14 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
             handles=legend_handles,
             loc="lower left",
             fontsize=8,
-            title=f"Codons: {', '.join(codon_numbers)}",
+            title=f"Codons: {', '.join(codon_numbers_str)}",
             title_fontsize=9,
             frameon=True,
         )
 
         # Pies
         map_w = xmax - xmin
-        radius_deg = max(0.6, 0.036 * map_w)  # slightly bigger pies; adjust factor to taste
+        radius_deg = max(0.6, 0.036 * map_w)  # slightly bigger pies
         for _, row in region_gdf.iterrows():
             country = str(row[name_col])
             if country not in country_counts:
@@ -495,7 +519,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
             fracs = [cnt.get(h, 0) / total for h in all_haps]
             _draw_pie(ax, (lon, lat), fracs, [hap_colors[h] for h in all_haps], radius_deg)
 
-            # --- Wrapped country labels (2 lines if >2 words) + optional extra offset ---
+            # Wrapped country labels (2 lines if >2 words)
             words = country.split()
             if len(words) > 2:
                 mid = 2 if len(words) > 4 else len(words) // 2
@@ -504,7 +528,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
                 wrapped_name = country
 
             ax.text(
-                lon, lat + radius_deg * 1.5,  # optional extra offset applied
+                lon, lat + radius_deg * 1.5,
                 wrapped_name,
                 ha="center", va="bottom",
                 fontsize=8, fontweight="bold",
@@ -520,6 +544,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     plt.savefig(out_png, dpi=300)
     plt.close(fig)
     print(f"[OK] Saved map: {out_png}")
+
 
 
 
