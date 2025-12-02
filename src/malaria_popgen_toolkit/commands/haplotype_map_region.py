@@ -44,6 +44,7 @@ GENE_CODON_POSITIONS: Dict[str, Dict[str, Dict[int, Tuple[int, str, str]]]] = {
             403596: (72, 'C', 'R'),
             403599: (73, 'V', 'F'),
             403602: (74, 'M', 'I'),
+            403618: (74, 'MNK', 'IET'),
             403605: (75, 'N', 'E'),
             403625: (76, 'K', 'T'),
         },
