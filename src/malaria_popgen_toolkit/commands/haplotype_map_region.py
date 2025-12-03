@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Haplotype maps for drug-resistance genes by region (Africa/S. America/SE Asia).
+
 - Reads multi-sample VCF + metadata TSV
 - Intersects metadata sample IDs with VCF samples (avoids bcftools failure)
 - Applies per-sample DP filtering (DP >= min_dp) when deciding haplotypes
@@ -9,6 +10,11 @@ Haplotype maps for drug-resistance genes by region (Africa/S. America/SE Asia).
 - Plots regional pie charts with GeoPandas (geodatasets or Natural Earth fallback)
 
 Note: If a codon site is absent in the VCF (invariant), treat as REF.
+
+Special case:
+- CRT has an additional variant at 403618 (74MNK>74IET) that can create long
+  strings like CVMMNKNK / CVMIETNT. We collapse these post-hoc to 5-AA
+  haplotypes such as CVMNK / CVIET.
 """
 
 from __future__ import annotations
@@ -44,8 +50,7 @@ GENE_CODON_POSITIONS: Dict[str, Dict[str, Dict[int, Tuple[int, str, str]]]] = {
             403596: (72, 'C', 'R'),
             403599: (73, 'V', 'F'),
             403602: (74, 'M', 'I'),
-            # This variant spans the 74–76 block (74MNK>74IET) at a different pos.
-            # We handle its effect in the combined hap string post-hoc.
+            # This site encodes a 74–76 block change (74MNK>74IET)
             403618: (74, 'MNK', 'IET'),
             403605: (75, 'N', 'E'),
             403625: (76, 'K', 'T'),
@@ -247,6 +252,7 @@ def _parse_gt_dp_token(tok: str, min_dp: int) -> Tuple[int, int] | None:
     alt_ct = sum(1 for a in alleles if a == '1')
     return (alt_ct, len(alleles))
 
+
 def _haplotypes_for_gene(
     vcf_path: str,
     samples: List[str],
@@ -302,17 +308,17 @@ def _haplotypes_for_gene(
     if gene.upper() == "CRT":
         fixed: Dict[str, str] = {}
         for s, hap in hap_by_sample.items():
-            if len(hap) > 5:
-                # Empirically: we get patterns like CVMMNKNK or CVMIETNT
-                #  hap[0:2] -> positions 72–73 (CV)
-                #  hap[3:6] -> the 74–76 block (MNK or IET)
-                try:
-                    fixed[s] = hap[0:2] + hap[3:6]
-                except Exception:
-                    # Fallback: keep as-is if something unexpected happens
-                    fixed[s] = hap
+            # Remove anything that's not A–Z just in case
+            clean = re.sub(r'[^A-Z]', '', hap)
+
+            # If we have an expanded representation (e.g. CVMMNKNK, CVMIETNT)
+            # we compress to 5 AA: 72–73 (first 2) + 74–76 (last 3).
+            if len(clean) > 5:
+                collapsed = clean[0:2] + clean[-3:]
+                fixed[s] = collapsed
             else:
-                fixed[s] = hap
+                fixed[s] = clean
+
         hap_by_sample = fixed
 
     return hap_by_sample
@@ -544,6 +550,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     plt.savefig(out_png, dpi=300)
     plt.close(fig)
     print(f"[OK] Saved map: {out_png}")
+
 
 
 
