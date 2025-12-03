@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Haplotype maps for drug-resistance genes by region (Africa/S. America/SE Asia).
-
 - Reads multi-sample VCF + metadata TSV
 - Intersects metadata sample IDs with VCF samples (avoids bcftools failure)
 - Applies per-sample DP filtering (DP >= min_dp) when deciding haplotypes
@@ -13,10 +12,10 @@ Note: If a codon site is absent in the VCF (invariant), treat as REF.
 
 Special case:
 - CRT has an additional multi-codon variant at 403618 (codons 74–76 MNK>IET)
-  that can create long strings like CVMMNKNK / CVMIETNT. We post-hoc normalise
-  all CRT haplotypes to either CVMNK or CVIET by inspecting the 74–76 segment:
-  if any of I/E/T are present we call CVIET, otherwise CVMNK.
-
+  that can create long strings such as CVMMNKNK / CVMIETNT / CVMNKIET.
+  We post-hoc normalise all CRT haplotypes to either CVMNK or CVIET by
+  inspecting the 74–76 segment: if any of I/E/T are present we call CVIET,
+  otherwise CVMNK.
 """
 
 from __future__ import annotations
@@ -52,9 +51,10 @@ GENE_CODON_POSITIONS: Dict[str, Dict[str, Dict[int, Tuple[int, str, str]]]] = {
             403596: (72, 'C', 'R'),
             403599: (73, 'V', 'F'),
             403602: (74, 'M', 'I'),
-            403618: (74, 'MNK', 'IET'),
             403605: (75, 'N', 'E'),
             403625: (76, 'K', 'T'),
+            # Multi-codon 74–76 variant: MNK > IET
+            403618: (74, 'MNK', 'IET'),
         },
     },
     "MDR1": {
@@ -119,7 +119,7 @@ def _norm(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
-def _canonical_country_name(user_name: str, shape_names: List[str]) -> str | None:
+def _canonical_country_name(user_name: str, shape_names: list[str]) -> str | None:
     """Return shapefile country name that best matches user_name."""
     if user_name in shape_names:
         return user_name
@@ -253,7 +253,6 @@ def _parse_gt_dp_token(tok: str, min_dp: int) -> Tuple[int, int] | None:
     alt_ct = sum(1 for a in alleles if a == '1')
     return (alt_ct, len(alleles))
 
-
 def _haplotypes_for_gene(
     vcf_path: str,
     samples: List[str],
@@ -287,7 +286,6 @@ def _haplotypes_for_gene(
 
     ordered_positions = sorted(pos_map.keys(), key=lambda p: pos_map[p][0])
     hap_by_sample: Dict[str, str] = {}
-
     for s in samples:
         aaseq = []
         for p in ordered_positions:
@@ -302,36 +300,40 @@ def _haplotypes_for_gene(
                 continue
             alt_ct, _ = parsed
             aaseq.append(mutAA if alt_ct > 0 else refAA)
-        hap = ''.join(aaseq)
-        hap_by_sample[s] = hap
+        hap_by_sample[s] = ''.join(aaseq)
 
-    # --- CRT-specific post-processing: normalise to CVMNK / CVIET ---
+    # --- CRT-specific post-processing: normalise messy strings to CVMNK / CVIET ---
     if gene.upper() == "CRT":
         fixed: Dict[str, str] = {}
         for s, hap in hap_by_sample.items():
             # Remove anything that's not A–Z just in case
             clean = re.sub(r"[^A-Z]", "", hap or "")
 
-            # If this doesn't even look like CRT (no leading CV), just keep it
+            # If this doesn't look like CV***, just leave as-is
             if not clean.startswith("CV") or len(clean) < 3:
                 fixed[s] = clean
                 continue
 
-            # Variable region = codons 74–76 (everything after the initial CV).
+            # Variable region = codons 74–76, which may be encoded via:
+            # - individual sites 74, 75, 76, and/or
+            # - the 74–76 multi-codon site at 403618 (MNK/IET),
+            # potentially leading to long strings like CVMNKIET, CVMMNKNK, CVMIETNT.
             var = clean[2:]
 
-            # We only expect two biological haplotypes here:
+            # We biologically only care about:
             #   - CVMNK (WT)
             #   - CVIET (mutant)
             #
-            # If we see any of I/E/T in the variable region, treat as CVIET.
-            # Otherwise call CVMNK.
+            # If any of I/E/T appear in the variable region, call CVIET;
+            # otherwise call CVMNK.
             if any(aa in var for aa in ("I", "E", "T")):
                 fixed[s] = "CVIET"
             else:
                 fixed[s] = "CVMNK"
 
         hap_by_sample = fixed
+
+    return hap_by_sample
 
 
 # ---------------------------------------------------------------------
@@ -499,11 +501,8 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
         colors = plt.cm.tab20.colors
         hap_colors = {h: colors[j % len(colors)] for j, h in enumerate(all_haps)}
 
-        # Legend with unique codon numbers
-        codon_numbers = sorted(
-            {v[0] for v in GENE_CODON_POSITIONS[gene]["positions"].values()}
-        )
-        codon_numbers_str = [str(c) for c in codon_numbers]
+        # Legend with codon numbers
+        codon_numbers = [str(v[0]) for v in GENE_CODON_POSITIONS[gene]["positions"].values()]
         legend_handles = [
             mpatches.Patch(color=hap_colors[h],
                            label=f"{h}{' (WT)' if WILDTYPE_HAPLO.get(gene) == h else ''}")
@@ -513,14 +512,14 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
             handles=legend_handles,
             loc="lower left",
             fontsize=8,
-            title=f"Codons: {', '.join(codon_numbers_str)}",
+            title=f"Codons: {', '.join(codon_numbers)}",
             title_fontsize=9,
             frameon=True,
         )
 
         # Pies
         map_w = xmax - xmin
-        radius_deg = max(0.6, 0.036 * map_w)  # slightly bigger pies
+        radius_deg = max(0.6, 0.036 * map_w)  # slightly bigger pies; adjust factor to taste
         for _, row in region_gdf.iterrows():
             country = str(row[name_col])
             if country not in country_counts:
@@ -535,7 +534,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
             fracs = [cnt.get(h, 0) / total for h in all_haps]
             _draw_pie(ax, (lon, lat), fracs, [hap_colors[h] for h in all_haps], radius_deg)
 
-            # Wrapped country labels (2 lines if >2 words)
+            # --- Wrapped country labels (2 lines if >2 words) + optional extra offset ---
             words = country.split()
             if len(words) > 2:
                 mid = 2 if len(words) > 4 else len(words) // 2
@@ -544,7 +543,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
                 wrapped_name = country
 
             ax.text(
-                lon, lat + radius_deg * 1.5,
+                lon, lat + radius_deg * 1.5,  # optional extra offset applied
                 wrapped_name,
                 ha="center", va="bottom",
                 fontsize=8, fontweight="bold",
@@ -560,6 +559,7 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     plt.savefig(out_png, dpi=300)
     plt.close(fig)
     print(f"[OK] Saved map: {out_png}")
+
 
 
 
