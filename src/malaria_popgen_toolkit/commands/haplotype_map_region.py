@@ -12,9 +12,11 @@ Haplotype maps for drug-resistance genes by region (Africa/S. America/SE Asia).
 Note: If a codon site is absent in the VCF (invariant), treat as REF.
 
 Special case:
-- CRT has an additional variant at 403618 (74MNK>74IET) that can create long
-  strings like CVMMNKNK / CVMIETNT. We collapse these post-hoc to 5-AA
-  haplotypes such as CVMNK / CVIET.
+- CRT has an additional multi-codon variant at 403618 (codons 74–76 MNK>IET)
+  that can create long strings like CVMMNKNK / CVMIETNT. We post-hoc normalise
+  all CRT haplotypes to either CVMNK or CVIET by inspecting the 74–76 segment:
+  if any of I/E/T are present we call CVIET, otherwise CVMNK.
+
 """
 
 from __future__ import annotations
@@ -50,7 +52,6 @@ GENE_CODON_POSITIONS: Dict[str, Dict[str, Dict[int, Tuple[int, str, str]]]] = {
             403596: (72, 'C', 'R'),
             403599: (73, 'V', 'F'),
             403602: (74, 'M', 'I'),
-            # This site encodes a 74–76 block change (74MNK>74IET)
             403618: (74, 'MNK', 'IET'),
             403605: (75, 'N', 'E'),
             403625: (76, 'K', 'T'),
@@ -304,24 +305,33 @@ def _haplotypes_for_gene(
         hap = ''.join(aaseq)
         hap_by_sample[s] = hap
 
-    # --- CRT-specific post-processing: collapse weird CVMMNKNK / CVMIETNT to CVMNK / CVIET ---
+    # --- CRT-specific post-processing: normalise to CVMNK / CVIET ---
     if gene.upper() == "CRT":
         fixed: Dict[str, str] = {}
         for s, hap in hap_by_sample.items():
             # Remove anything that's not A–Z just in case
-            clean = re.sub(r'[^A-Z]', '', hap)
+            clean = re.sub(r"[^A-Z]", "", hap or "")
 
-            # If we have an expanded representation (e.g. CVMMNKNK, CVMIETNT)
-            # we compress to 5 AA: 72–73 (first 2) + 74–76 (last 3).
-            if len(clean) > 5:
-                collapsed = clean[0:2] + clean[-3:]
-                fixed[s] = collapsed
-            else:
+            # If this doesn't even look like CRT (no leading CV), just keep it
+            if not clean.startswith("CV") or len(clean) < 3:
                 fixed[s] = clean
+                continue
+
+            # Variable region = codons 74–76 (everything after the initial CV).
+            var = clean[2:]
+
+            # We only expect two biological haplotypes here:
+            #   - CVMNK (WT)
+            #   - CVIET (mutant)
+            #
+            # If we see any of I/E/T in the variable region, treat as CVIET.
+            # Otherwise call CVMNK.
+            if any(aa in var for aa in ("I", "E", "T")):
+                fixed[s] = "CVIET"
+            else:
+                fixed[s] = "CVMNK"
 
         hap_by_sample = fixed
-
-    return hap_by_sample
 
 
 # ---------------------------------------------------------------------
