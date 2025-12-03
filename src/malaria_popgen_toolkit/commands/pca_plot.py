@@ -35,6 +35,7 @@ def _require_tool(name: str):
     if subprocess.run(["bash", "-lc", f"command -v {name} >/dev/null 2>&1"]).returncode != 0:
         sys.exit(f"ERROR: required tool '{name}' not found in PATH.")
 
+
 def _run_cmd(cmd: List[str]) -> str | None:
     p = subprocess.run(cmd, capture_output=True, text=True)
     if p.returncode != 0:
@@ -42,15 +43,13 @@ def _run_cmd(cmd: List[str]) -> str | None:
         return None
     return p.stdout
 
+
 def _vcf_samples(vcf_path: str) -> List[str]:
     out = _run_cmd(["bcftools", "query", "-l", vcf_path])
     if out is None:
         return []
     return [s.strip() for s in out.splitlines() if s.strip()]
 
-def _intersect_ordered(a: List[str], b: List[str]) -> List[str]:
-    bset = set(b)
-    return [x for x in a if x in bset]
 
 def _encode_gt_to_numeric(gt: str) -> float | np.nan:
     # '.', './.', '.|.' => NaN
@@ -74,30 +73,38 @@ def _load_matrix(matrix_path: str, metadata: pd.DataFrame, sample_col: str):
       - then per-sample columns
     Values: 0, 0.5, 1 or 'N' for missing.
 
-    This version reads directly into float32 to reduce memory usage.
+    Behaviour:
+      - use only samples present in BOTH matrix and metadata
+      - treat matrix sample order as the truth
+      - if metadata has duplicates for a sample_id, keep the first.
     """
+    # Normalise metadata sample IDs to string and drop duplicates
+    meta = metadata.copy()
+    meta[sample_col] = meta[sample_col].astype(str)
+    meta_unique = meta.drop_duplicates(subset=sample_col, keep="first").set_index(sample_col)
+
     # First pass: just get columns
     header_df = pd.read_csv(matrix_path, sep="\t", nrows=0)
     cols = header_df.columns.tolist()
 
+    # Detect leading chr/pos/ref
     start_idx = 0
     lower = [c.lower() for c in cols[:3]]
     if len(cols) >= 3 and lower == ["chr", "pos", "ref"]:
         start_idx = 3
     all_sample_cols = cols[start_idx:]
 
-    meta_samples = metadata[sample_col].astype(str).tolist()
-    sample_cols = _intersect_ordered(meta_samples, all_sample_cols)
+    # Intersection: samples in BOTH matrix and metadata, keep matrix order
+    sample_cols = [s for s in all_sample_cols if s in meta_unique.index]
     if not sample_cols:
         raise SystemExit("No overlapping samples between matrix and metadata.")
 
-    # Build dtype dict: non-sample columns as 'category' or 'string',
-    # sample columns as 'float32'. We read everything in one pass.
+    # Build dtype dict: non-sample columns as 'string', sample columns as 'float32'
     dtype_map = {c: "string" for c in cols[:start_idx]}
     for c in sample_cols:
         dtype_map[c] = "float32"
 
-    # Read full matrix; only columns we care about
+    # Read only the relevant columns
     df = pd.read_csv(
         matrix_path,
         sep="\t",
@@ -106,33 +113,42 @@ def _load_matrix(matrix_path: str, metadata: pd.DataFrame, sample_col: str):
         na_values=["N"],
     )
 
-    # Extract sample matrix as float32, variants x samples
+    # variants x samples → samples x variants
     M = df[sample_cols].to_numpy(dtype="float32")
-
-    # Transpose to samples x variants
     X = M.T
 
-    # Metadata subset in same sample order
-    meta_sub = metadata.set_index(sample_col).loc[sample_cols].reset_index()
+    # Metadata subset in the same order as sample_cols
+    meta_sub = meta_unique.loc[sample_cols].reset_index()
 
     return X, sample_cols, meta_sub
-
 
 
 def _load_vcf_as_matrix(vcf_path: str, metadata: pd.DataFrame, sample_col: str):
     """
     Convert VCF to 0/0.5/1 matrix using bcftools query, no imputation.
+
+    Behaviour:
+      - use only samples present in BOTH VCF and metadata
+      - treat VCF sample order as the truth
+      - if metadata has duplicates for a sample_id, keep the first.
     """
     _require_tool("bcftools")
+
+    # Normalise metadata sample IDs to string and drop duplicates
+    meta = metadata.copy()
+    meta[sample_col] = meta[sample_col].astype(str)
+    meta_unique = meta.drop_duplicates(subset=sample_col, keep="first").set_index(sample_col)
+
     vcf_samples = _vcf_samples(vcf_path)
     if not vcf_samples:
         raise SystemExit("Could not read samples from VCF via bcftools.")
-    meta_samples = metadata[sample_col].astype(str).tolist()
-    samples = _intersect_ordered(meta_samples, vcf_samples)
+
+    # Samples present in both, keeping VCF order
+    samples = [s for s in vcf_samples if s in meta_unique.index]
     if not samples:
         raise SystemExit("No overlapping samples between VCF and metadata.")
 
-    # Get VCF sample order
+    # Get VCF sample order from header (sanity, should match vcf_samples)
     hdr = _run_cmd(["bcftools", "query", "-H", "-f", "%CHROM\t%POS[\t%SAMPLE]\n", vcf_path])
     if hdr is None:
         raise SystemExit("bcftools query failed reading header.")
@@ -153,10 +169,14 @@ def _load_vcf_as_matrix(vcf_path: str, metadata: pd.DataFrame, sample_col: str):
         for j, gt in enumerate(gts):
             M[i, j] = _encode_gt_to_numeric(gt)
 
+    # Subset to intersected samples in VCF (header) order
     idx = [all_samples.index(s) for s in samples]
     M = M[:, idx]
     X = M.T  # samples x variants
-    meta_sub = metadata.set_index(sample_col).loc[samples].reset_index()
+
+    # Metadata subset in same sample order
+    meta_sub = meta_unique.loc[samples].reset_index()
+
     return X, samples, meta_sub
 
 
@@ -396,3 +416,4 @@ def run(
         for (a, b) in pc_pairs:
             out_pdf = os.path.join(outdir, f"pca_all_PC{a}_PC{b}.pdf")
             _scatter(coords, evr, meta_all, "all", a, b, out_pdf)
+
