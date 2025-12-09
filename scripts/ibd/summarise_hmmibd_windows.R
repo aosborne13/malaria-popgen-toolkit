@@ -42,9 +42,9 @@ option_list <- list(
               help = "Main directory (where per-category hmmIBD outputs live)",
               metavar = "character"),
   make_option("--list_category", type = "character", default = NULL,
-              help = "Optional file with category list (one per line). "
-                   "If omitted, categories are auto-detected from hmmIBD_* files.",
-              metavar = "character"),
+            help = "Optional file with category list (one per line). "
+                 "If omitted, categories are auto-detected from hmmIBD_* files.",
+            metavar = "character"),
   make_option(c("-l", "--legend"), type = "character",
               default = "ibd_matrix_hap_leg.tsv",
               help = "SNP legend file [default %default]",
