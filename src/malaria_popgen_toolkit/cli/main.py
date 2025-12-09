@@ -3,13 +3,14 @@
 Main CLI entry point for the malaria-popgen-toolkit.
 
 Commands:
-  - missense-drugres-af   Allele frequencies of missense drug-resistance variants
-  - hapmap-africa         Haplotype map for Africa
-  - hapmap-samerica       Haplotype map for South America
-  - hapmap-seasia         Haplotype map for Southeast Asia
-  - fws-dotplot           Fws jittered dot plots by metadata groups
-  - pca                   Distance-based PCA / PCoA from binary matrix
-  - hmmibd-matrix         Prepare and run hmmIBD from a binary SNP matrix
+  - dataset-stats          Report number of samples and SNPs (VCF or matrix)
+  - missense-drugres-af    Allele frequencies of missense drug-resistance variants
+  - hapmap-africa          Haplotype map for Africa
+  - hapmap-samerica        Haplotype map for South America
+  - hapmap-seasia          Haplotype map for Southeast Asia
+  - fws-dotplot            Fws jittered dot plots by metadata groups
+  - pca                    Distance-based PCA / PCoA from binary matrix
+  - hmmibd-matrix          Prepare and run hmmIBD from a binary SNP matrix
 """
 
 import argparse
@@ -17,6 +18,7 @@ import sys
 import shutil
 
 from malaria_popgen_toolkit.commands import (
+    dataset_stats,
     missense_drugres_af,
     haplotype_map_region,
     fws_dotplot,
@@ -36,6 +38,16 @@ def main():
         description="Malaria population genomics command-line toolkit"
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    # ------------------------------------------------------------------
+    # dataset-stats
+    # ------------------------------------------------------------------
+    p0 = sub.add_parser(
+        "dataset-stats",
+        help="Report number of samples and SNPs from a VCF or matrix"
+    )
+    p0.add_argument("--vcf", help="Input VCF (bgzipped)")
+    p0.add_argument("--matrix", help="Genotype matrix (.tsv / .bin)")
 
     # ------------------------------------------------------------------
     # missense-drugres-af
@@ -116,7 +128,12 @@ def main():
     # Dispatch
     # ==========================
 
-    if args.command == "missense-drugres-af":
+    if args.command == "dataset-stats":
+        if args.vcf:
+            require_tool("bcftools")
+        dataset_stats.run(vcf=args.vcf, matrix=args.matrix)
+
+    elif args.command == "missense-drugres-af":
         require_tool("bcftools")
         missense_drugres_af.run(
             vcf=args.vcf,
@@ -186,6 +203,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
