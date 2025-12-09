@@ -276,12 +276,22 @@ for (category_n in category_list) {
       pull(end_chr) %>%
       unique()
 
-    # Windows for this chromosome
+    # ensure a single scalar
+    if (length(length_chr) != 1) {
+      length_chr <- length_chr[1]
+      warning("FAI has multiple entries for chr ", chr_k,
+              "; using the first length = ", length_chr)
+    }
+
+    # Windows for this chromosome:
+    # start at 1, step by window_size; end = start+window_size-1 capped at chr length
+    win_start <- seq(1, length_chr, by = window_size)
+    win_end   <- pmin(win_start + window_size - 1, length_chr)
+
     windows <- data.frame(
       chr       = chr_k,
-      win_start = seq(1, length_chr, by = window_size),
-      win_end   = pmin(seq(window_size, length_chr, by = window_size),
-                       length_chr)
+      win_start = win_start,
+      win_end   = win_end
     )
 
     # Overlap IBD segments with windows
