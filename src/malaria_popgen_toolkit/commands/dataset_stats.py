@@ -1,48 +1,66 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Quick dataset sanity checks.
-Reports number of samples and SNPs/positions
-from either a VCF or a binary genotype matrix.
+Report basic dataset statistics:
+- Number of samples
+- Number of variants (SNPs)
+
+Supports:
+- bgzipped VCF via bcftools
+- binary / TSV genotype matrix
 """
 
+from __future__ import annotations
 import subprocess
-import pandas as pd
 import sys
+import pandas as pd
 
 
-def _run(cmd):
-    p = subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd: list[str]) -> int:
+    p = subprocess.run(cmd, shell=False, capture_output=True, text=True)
     if p.returncode != 0:
         sys.exit(f"[ERROR] {' '.join(cmd)}\n{p.stderr}")
-    return p.stdout.strip()
+    try:
+        return int(p.stdout.strip())
+    except ValueError:
+        sys.exit(f"[ERROR] Unexpected output from command: {' '.join(cmd)}")
 
 
-def _vcf_stats(vcf):
-    samples = _run(["bcftools", "query", "-l", vcf]).splitlines()
-    n_samples = len(samples)
+def stats_vcf(vcf: str):
+    # number of samples
+    nsamples = _run(["bash", "-c", f"bcftools query -l {vcf} | wc -l"])
 
-    n_snps = int(_run(["bcftools", "view", "-H", vcf, "|", "wc", "-l"]))
-    return n_samples, n_snps
+    # number of variants (non-header lines)
+    nvars = _run(["bash", "-c", f"bcftools view -H {vcf} | wc -l"])
 
-
-def _matrix_stats(matrix):
-    df = pd.read_csv(matrix, sep="\t", nrows=5)
-    n_samples = df.shape[1] - 3  # chr, pos, ref
-    n_snps = sum(1 for _ in open(matrix)) - 1  # header
-    return n_samples, n_snps
+    print("Input type: VCF")
+    print(f"Samples:  {nsamples}")
+    print(f"Variants: {nvars}")
 
 
-def run(vcf=None, matrix=None):
-    if bool(vcf) == bool(matrix):
-        sys.exit("Provide exactly ONE of --vcf or --matrix")
+def stats_matrix(matrix: str):
+    # read header only
+    with open(matrix) as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+
+    # first three columns assumed: chrom, pos, ref
+    nsamples = len(header) - 3
+
+    # line count minus header
+    nvars = sum(1 for _ in open(matrix)) - 1
+
+    print("Input type: matrix")
+    print(f"Samples:  {nsamples}")
+    print(f"Variants: {nvars}")
+
+
+def run(vcf: str | None = None, matrix: str | None = None):
+    if not vcf and not matrix:
+        sys.exit("ERROR: Must provide --vcf or --matrix")
+
+    if vcf and matrix:
+        sys.exit("ERROR: Provide only one of --vcf or --matrix")
 
     if vcf:
-        n_samples, n_snps = _vcf_stats(vcf)
-        print("Input type: VCF")
-
+        stats_vcf(vcf)
     else:
-        n_samples, n_snps = _matrix_stats(matrix)
-        print("Input type: matrix")
-
-    print(f"Samples:  {n_samples}")
-    print(f"Variants: {n_snps}")
+        stats_matrix(matrix)
