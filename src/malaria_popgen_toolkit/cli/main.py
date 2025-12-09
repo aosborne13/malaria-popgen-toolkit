@@ -3,14 +3,13 @@
 Main CLI entry point for the malaria-popgen-toolkit.
 
 Commands:
-  - dataset-stats          Report number of samples and SNPs (VCF or matrix)
-  - missense-drugres-af    Allele frequencies of missense drug-resistance variants
-  - hapmap-africa          Haplotype map for Africa
-  - hapmap-samerica        Haplotype map for South America
-  - hapmap-seasia          Haplotype map for Southeast Asia
-  - fws-dotplot            Fws jittered dot plots by metadata groups
-  - pca                    Distance-based PCA / PCoA from binary matrix
-  - hmmibd-matrix          Prepare and run hmmIBD from a binary SNP matrix
+  - missense-drugres-af   Allele frequencies of missense drug-resistance variants
+  - hapmap-africa         Haplotype map for Africa
+  - hapmap-samerica       Haplotype map for South America
+  - hapmap-seasia         Haplotype map for Southeast Asia
+  - fws-dotplot           Fws jittered dot plots by metadata groups
+  - pca                   Distance-based PCA / PCoA from binary matrix
+  - hmmibd-matrix         Prepare and run hmmIBD from a binary SNP matrix
 """
 
 import argparse
@@ -18,7 +17,6 @@ import sys
 import shutil
 
 from malaria_popgen_toolkit.commands import (
-    dataset_stats,
     missense_drugres_af,
     haplotype_map_region,
     fws_dotplot,
@@ -40,22 +38,9 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     # ------------------------------------------------------------------
-    # dataset-stats
-    # ------------------------------------------------------------------
-    p0 = sub.add_parser(
-        "dataset-stats",
-        help="Report number of samples and SNPs from a VCF or matrix"
-    )
-    p0.add_argument("--vcf", help="Input VCF (bgzipped)")
-    p0.add_argument("--matrix", help="Genotype matrix (.tsv / .bin)")
-
-    # ------------------------------------------------------------------
     # missense-drugres-af
     # ------------------------------------------------------------------
-    p1 = sub.add_parser(
-        "missense-drugres-af",
-        help="Compute missense allele frequencies in drug-resistance genes"
-    )
+    p1 = sub.add_parser("missense-drugres-af")
     p1.add_argument("--vcf", required=True)
     p1.add_argument("--ref", required=True)
     p1.add_argument("--gff3", required=True)
@@ -72,7 +57,7 @@ def main():
         ("hapmap-samerica", "south_america"),
         ("hapmap-seasia", "southeast_asia"),
     ]:
-        p = sub.add_parser(cmd, help=f"Haplotype map for {region}")
+        p = sub.add_parser(cmd)
         p.add_argument("--vcf", required=True)
         p.add_argument("--metadata", required=True)
         p.add_argument("--outdir", required=True)
@@ -83,7 +68,7 @@ def main():
     # ------------------------------------------------------------------
     # Fws dotplot
     # ------------------------------------------------------------------
-    p5 = sub.add_parser("fws-dotplot", help="Fws jittered dot plots")
+    p5 = sub.add_parser("fws-dotplot")
     p5.add_argument("--metadata", required=True)
     p5.add_argument("--outdir", default="fws_plots")
     p5.add_argument("--group-by", action="append")
@@ -93,7 +78,7 @@ def main():
     # ------------------------------------------------------------------
     # PCA / PCoA
     # ------------------------------------------------------------------
-    p6 = sub.add_parser("pca", help="Distance-based PCA / PCoA")
+    p6 = sub.add_parser("pca")
     p6.add_argument("--matrix", required=True)
     p6.add_argument("--metadata", required=True)
     p6.add_argument("--outdir", default="pca_plots")
@@ -105,13 +90,10 @@ def main():
     # ------------------------------------------------------------------
     # hmmIBD
     # ------------------------------------------------------------------
-    p7 = sub.add_parser(
-        "hmmibd-matrix",
-        help="Prepare input and run hmmIBD from a binary SNP matrix"
-    )
+    p7 = sub.add_parser("hmmibd-matrix")
     p7.add_argument("--matrix", required=True)
     p7.add_argument("--metadata", required=True)
-    p7.add_argument("--workdir", required=True)
+    p7.add_argument("--outdir", required=True)
     p7.add_argument("--category-col", default="country")
     p7.add_argument("--category", default=None)
     p7.add_argument("--sample-col", default="sample_id")
@@ -119,31 +101,15 @@ def main():
     p7.add_argument("--fws-th", type=float, default=0.95)
     p7.add_argument("--maf", type=float, default=0.01)
     p7.add_argument("--threads", type=int, default=4)
+    p7.add_argument("--exclude-chr", default="Pf3D7_API_v3,Pf3D7_MIT_v3")
     p7.add_argument("--hmmibd-bin", default="hmmIBD")
     p7.add_argument("--skip-hmmibd", action="store_true")
 
     args = parser.parse_args()
 
-    # ==========================
-    # Dispatch
-    # ==========================
-
-    if args.command == "dataset-stats":
-        if args.vcf:
-            require_tool("bcftools")
-        dataset_stats.run(vcf=args.vcf, matrix=args.matrix)
-
-    elif args.command == "missense-drugres-af":
+    if args.command == "missense-drugres-af":
         require_tool("bcftools")
-        missense_drugres_af.run(
-            vcf=args.vcf,
-            ref_fasta=args.ref,
-            gff3=args.gff3,
-            metadata_path=args.metadata,
-            outdir=args.outdir,
-            min_dp=args.min_dp,
-            group_by=args.group_by,
-        )
+        missense_drugres_af.run(**vars(args))
 
     elif args.command in ("hapmap-africa", "hapmap-samerica", "hapmap-seasia"):
         require_tool("bcftools")
@@ -152,35 +118,13 @@ def main():
             "hapmap-samerica": "south_america",
             "hapmap-seasia": "southeast_asia",
         }[args.command]
-        haplotype_map_region.run(
-            region=region,
-            vcf=args.vcf,
-            metadata_path=args.metadata,
-            outdir=args.outdir,
-            min_dp=args.min_dp,
-            sample_col=args.sample_col,
-            country_col=args.country_col,
-        )
+        haplotype_map_region.run(region=region, **vars(args))
 
     elif args.command == "fws-dotplot":
-        fws_dotplot.run(
-            metadata_path=args.metadata,
-            outdir=args.outdir,
-            group_by=args.group_by,
-            width=args.width,
-            height=args.height,
-        )
+        fws_dotplot.run(**vars(args))
 
     elif args.command == "pca":
-        pca_plot.run(
-            matrix=args.matrix,
-            metadata_path=args.metadata,
-            outdir=args.outdir,
-            sample_col=args.sample_col,
-            group_by=args.group_by,
-            pcs=args.pcs,
-            max_sample_missing=args.max_sample_missing,
-        )
+        pca_plot.run(**vars(args))
 
     elif args.command == "hmmibd-matrix":
         require_tool("Rscript")
@@ -188,7 +132,7 @@ def main():
         hmmibd_matrix.run(
             matrix=args.matrix,
             metadata_path=args.metadata,
-            workdir=args.workdir,
+            outdir=args.outdir,
             category_col=args.category_col,
             category=args.category,
             sample_col=args.sample_col,
@@ -196,6 +140,7 @@ def main():
             fws_th=args.fws_th,
             maf=args.maf,
             threads=args.threads,
+            exclude_chr=args.exclude_chr,
             hmmibd_bin=args.hmmibd_bin,
             skip_hmmibd=args.skip_hmmibd,
         )
@@ -203,9 +148,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 
