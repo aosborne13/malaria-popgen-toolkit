@@ -17,29 +17,29 @@ suppressPackageStartupMessages({
 
 option_list <- list(
   make_option(c("-d", "--workdir"), type = "character", default = ".",
-              help = "Directory containing *_hmmIBD_ibd_winXkb.tsv and *_hmmIBD_fraction.tsv [default %default]",
+              help = "Directory containing *_hmmIBD_ibd_winXkb.tsv / *_hmmIBD_fraction.tsv",
               metavar = "character"),
   make_option(c("--ref_index"), type = "character", default = NULL,
               help = "FAI index for reference genome (required)",
               metavar = "character"),
   make_option(c("--gene_product"), type = "character", default = NULL,
-              help = "Gene annotation TSV (pf_genome_product_v3.tsv). Used for candidate gene table.",
+              help = "Gene product annotation TSV (pf_genome_product_v3.tsv)",
               metavar = "character"),
   make_option(c("--suffix"), type = "character", default = NULL,
-              help = "Prefix used by summarise_hmmibd_windows.R (e.g. 13_08_2025). If NULL, first *_hmmIBD_ibd_*.tsv is used to infer.",
+              help = "Prefix used by summarise_hmmibd_windows.R (e.g. 13_08_2025)",
               metavar = "character"),
   make_option(c("--window_size"), type = "numeric", default = 50000,
-              help = "Sliding window size in bp that was used in summarise step [default %default]",
+              help = "Sliding window size in bp used in summary [default %default]",
               metavar = "numeric"),
   make_option(c("--quantile_cutoff"), type = "numeric", default = 0.95,
               help = "Quantile cutoff for high-IBD windows [default %default]",
               metavar = "numeric"),
   make_option(c("--remove_chr"), type = "character",
               default = "Pf3D7_API_v3,Pf3D7_MIT_v3",
-              help = "Comma-separated list of chromosomes to drop [default %default]",
+              help = "Comma-separated chromosomes to drop [default %default]",
               metavar = "character"),
   make_option(c("--regex_chr"), type = "character", default = "(.*?)_(.+)_(.*)",
-              help = "Regex to derive numeric chromosome from chr name [default %default]",
+              help = "Regex for numeric chromosome from chr name [default %default]",
               metavar = "character"),
   make_option(c("--regex_groupid"), type = "integer", default = 3,
               help = "Capture group index in regex_chr giving numeric chromosome [default %default]",
@@ -49,79 +49,86 @@ option_list <- list(
               metavar = "character")
 )
 
-opt_parser <- OptionParser(option_list = option_list)
-opt <- parse_args(opt_parser)
+opt <- parse_args(OptionParser(option_list = option_list))
 
-# ─────────────────────────────────────────────────────────────
-# Extract options
-# ─────────────────────────────────────────────────────────────
+workdir         <- opt$workdir
+ref_index       <- opt$ref_index
+gene_file       <- opt$gene_product
+suffix          <- opt$suffix
+window_size     <- opt$window_size
+quantile_cutoff <- opt$quantile_cutoff
+rm_chr_str      <- opt$remove_chr
+pattern         <- opt$regex_chr
+groupid         <- opt$regex_groupid
 
-workdir        <- opt$workdir
-ref_index      <- opt$ref_index
-gene_file      <- opt$gene_product
-suffix         <- opt$suffix
-window_size    <- opt$window_size
-th_quantile    <- opt$quantile_cutoff
-rm_chr_str     <- opt$remove_chr
-pattern        <- opt$regex_chr
-groupid        <- opt$regex_groupid
-outdir         <- opt$outdir
-
-if (is.null(ref_index)) {
-  stop("ERROR: --ref_index is required\n", call. = FALSE)
+if (is.null(suffix)) {
+  stop("ERROR: --suffix is required (must match summarise_hmmibd_windows.R outputs).",
+       call. = FALSE)
+}
+if (is.null(ref_index) || !file.exists(ref_index)) {
+  stop("ERROR: --ref_index not provided or file does not exist.", call. = FALSE)
+}
+if (is.null(gene_file) || !file.exists(gene_file)) {
+  stop("ERROR: --gene_product not provided or file does not exist.", call. = FALSE)
 }
 
-if (is.null(outdir)) {
-  outdir <- file.path(workdir, sprintf("win_%dkb", window_size / 1000))
+setwd(workdir)
+window_kb <- window_size / 1000
+
+if (is.null(opt$outdir)) {
+  outdir <- file.path(workdir, sprintf("win_%dkb", window_kb))
+} else {
+  outdir <- opt$outdir
 }
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
 message("Workdir: ", workdir)
-message("Outdir: ", outdir)
+message("Output dir: ", outdir)
 
 # ─────────────────────────────────────────────────────────────
-# Locate summarised IBD files
+# Load summary + annotation files
 # ─────────────────────────────────────────────────────────────
 
-if (is.null(suffix)) {
-  # Try to infer suffix from first *_hmmIBD_ibd_winXkb.tsv
-  pattern_ibd <- sprintf(".*_hmmIBD_ibd_win%dkb.tsv$", window_size / 1000)
-  files_ibd <- list.files(workdir, pattern = pattern_ibd, full.names = FALSE)
-  if (length(files_ibd) == 0) {
-    stop("Could not find any *_hmmIBD_ibd_win", window_size/1000,
-         "kb.tsv in workdir. Please provide --suffix.\n", call. = FALSE)
-  }
-  suffix <- sub("_hmmIBD_ibd_win.*$", "", files_ibd[1])
-  message("Inferred suffix: ", suffix)
-}
-
-ibd_file   <- file.path(workdir,
-                        sprintf("%s_hmmIBD_ibd_win%dkb.tsv", suffix, window_size / 1000))
-fract_file <- file.path(workdir,
-                        sprintf("%s_hmmIBD_fraction.tsv", suffix))
+ibd_file <- file.path(workdir,
+                      sprintf("%s_hmmIBD_ibd_win%dkb.tsv", suffix, window_kb))
+frac_file <- file.path(workdir,
+                       sprintf("%s_hmmIBD_fraction.tsv", suffix))
+annot_file <- file.path(workdir,
+                        sprintf("%s_hmmIBD_ibd_win%dkb_annotated_q%.2f.tsv",
+                                suffix, window_kb, quantile_cutoff))
 
 if (!file.exists(ibd_file)) {
-  stop("IBD window file not found: ", ibd_file, call. = FALSE)
+  stop("Cannot find IBD window file: ", ibd_file, call. = FALSE)
 }
-if (!file.exists(fract_file)) {
-  stop("Fraction file not found: ", fract_file, call. = FALSE)
+if (!file.exists(frac_file)) {
+  stop("Cannot find fraction file: ", frac_file, call. = FALSE)
 }
-
-message("IBD windows: ", ibd_file)
-message("Fractions:   ", fract_file)
+if (!file.exists(annot_file)) {
+  stop("Cannot find annotated IBD windows file: ", annot_file,
+       "\nMake sure summarise_hmmibd_windows.R has been run.", call. = FALSE)
+}
 
 combined_ibd <- readr::read_tsv(ibd_file, col_types = cols())
-fraction_ibd <- readr::read_tsv(fract_file, col_types = cols())
+fraction_ibd <- readr::read_tsv(frac_file, col_types = cols())
+annot_ibd    <- readr::read_tsv(annot_file, col_types = cols())
 
-# Coerce category to character
-combined_ibd$category <- as.character(combined_ibd$category)
-fraction_ibd$category <- as.character(fraction_ibd$category)
+# Expect columns: chr, win_start, win_end, category, fraction
+needed_ibd_cols  <- c("chr", "win_start", "win_end", "category", "fraction")
+missing_ibd_cols <- setdiff(needed_ibd_cols, colnames(combined_ibd))
+if (length(missing_ibd_cols) > 0) {
+  stop("Missing columns in combined IBD file: ",
+       paste(missing_ibd_cols, collapse = ", "), call. = FALSE)
+}
 
-category_order <- combined_ibd$category %>%
-  unique() %>% sort()
+# category order
+category_order <- combined_ibd %>%
+  filter(!is.na(category)) %>%
+  pull(category) %>%
+  unique() %>%
+  sort()
 
 # ─────────────────────────────────────────────────────────────
-# Reference index (FAI)
+# Reference index → chromosome coordinates
 # ─────────────────────────────────────────────────────────────
 
 fai <- read.table(ref_index, stringsAsFactors = FALSE) %>%
@@ -129,28 +136,21 @@ fai <- read.table(ref_index, stringsAsFactors = FALSE) %>%
   dplyr::select(chr, end_chr)
 
 if (!is.null(rm_chr_str) && nzchar(rm_chr_str)) {
-  rm_chr_vec <- strsplit(rm_chr_str, ",")[[1]] |> trimws()
-  present_rm <- intersect(rm_chr_vec, unique(fai$chr))
-  if (length(present_rm) > 0) {
-    fai <- fai %>% dplyr::filter(!chr %in% present_rm)
-  } else {
-    warning("None of the --remove_chr names were found in FAI; continuing.\n")
-  }
+  rm_chr <- strsplit(rm_chr_str, ",")[[1]] |> trimws()
+  fai <- fai %>% dplyr::filter(!chr %in% rm_chr)
 }
 
 fai <- fai %>%
-  mutate(chr_num = as.numeric(str_match(chr, pattern)[, groupid])) %>%
+  mutate(chr_num = as.numeric(stringr::str_match(chr, pattern)[, groupid])) %>%
   arrange(chr_num) %>%
-  mutate(
-    tr_chr     = lag(cumsum(end_chr), default = 0),
-    fill_color = rep(c("grey95", "white"), length.out = n())
-  )
+  mutate(tr_chr    = dplyr::lag(cumsum(end_chr), default = 0),
+         fill_color = rep(c("grey95", "white"), length.out = n()))
 
-transpose_chr <- fai %>% select(chr = chr_num, tr_chr)
+transpose_chr <- fai %>% dplyr::select(chr = chr_num, tr_chr)
 chr_labels    <- fai %>% mutate(chr = chr_num, mid = tr_chr + end_chr / 2)
 
 # ─────────────────────────────────────────────────────────────
-# IBD fraction boxplot (with nicer font sizes)
+# 1) BOX PLOT OF PAIRWISE FRACTION IBD (with sensible fonts)
 # ─────────────────────────────────────────────────────────────
 
 fraction_ibd_plot <- fraction_ibd %>%
@@ -159,279 +159,226 @@ fraction_ibd_plot <- fraction_ibd %>%
 
 g_box <- ggplot(fraction_ibd_plot,
                 aes(x = category, y = fraction, fill = category)) +
-  geom_boxplot(outlier.alpha = 0.25, width = 0.6) +
-  stat_summary(fun = mean, geom = "point",
-               shape = 23, size = 2.5, fill = "yellow", color = "black") +
-  ylim(0, 0.25) +
+  geom_boxplot(outlier.alpha = 0.2) +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 1.8, color = "yellow") +
+  theme_classic(base_size = 14) +  # moderate base font
+  ylim(0, 0.5) +
   labs(x = NULL, y = "Pairwise fraction IBD") +
-  theme_classic(base_size = 11) +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 9),
-    axis.text.y = element_text(size = 9),
-    axis.title.y = element_text(size = 13),
-    legend.position = "none",
-    plot.title = element_text(size = 14, face = "bold")
+    axis.text.x  = element_text(angle = 45, hjust = 1, size = 11),
+    axis.text.y  = element_text(size = 11),
+    axis.title.y = element_text(size = 16),
+    legend.position = "none"
   )
 
-ggsave(
-  filename = file.path(outdir, "ibd_fraction_boxplot.png"),
-  plot     = g_box,
-  width    = 8,
-  height   = 5,
-  dpi      = 300
-)
+ggsave(file.path(outdir, "ibd_fraction_boxplot.png"),
+       g_box, width = 8, height = 6, dpi = 300)
+
+# also save underlying table for convenience
+readr::write_tsv(fraction_ibd_plot,
+                 file.path(outdir, "fraction_ibd.tsv"))
 
 # ─────────────────────────────────────────────────────────────
-# Genome-wide IBD fraction line plot
+# 2) GENOME-WIDE FRACTION IBD PLOT
 # ─────────────────────────────────────────────────────────────
 
 combined_ibd_tr <- combined_ibd %>%
-  filter(!is.na(fraction),
-         !is.na(category),
-         !is.na(chr),
-         !is.na(win_start)) %>%
-  mutate(
-    chr      = as.numeric(chr),
-    category = factor(category, levels = category_order)
-  ) %>%
+  filter(!is.na(fraction), !is.na(category),
+         !is.na(chr), !is.na(win_start)) %>%
+  mutate(chr = as.numeric(chr)) %>%
   left_join(transpose_chr, by = "chr") %>%
-  mutate(pos_bp_ed = as.numeric(win_start) + tr_chr)
+  mutate(pos_bp_ed = as.numeric(win_start) + tr_chr,
+         category  = factor(category, levels = category_order))
 
 signif_cutoff <- quantile(combined_ibd_tr$fraction,
-                          probs = th_quantile, na.rm = TRUE)
+                          probs = quantile_cutoff, na.rm = TRUE)
 
 p_clean <- ggplot(combined_ibd_tr) +
-  geom_rect(
-    data = fai,
-    aes(xmin = tr_chr, xmax = tr_chr + end_chr,
-        ymin = -Inf, ymax = Inf, fill = fill_color),
-    inherit.aes = FALSE, alpha = 0.5, color = NA
-  ) +
+  geom_rect(data = fai,
+            aes(xmin = tr_chr, xmax = tr_chr + end_chr,
+                ymin = -Inf, ymax = Inf, fill = fill_color),
+            inherit.aes = FALSE, alpha = 0.5, color = NA) +
   scale_fill_identity() +
-  geom_line(
-    aes(x = pos_bp_ed, y = fraction, color = category),
-    linewidth = 0.6
-  ) +
+  geom_line(aes(x = pos_bp_ed, y = fraction, color = category),
+            linewidth = 0.8) +
   facet_wrap(~ category, ncol = 1, scales = "free_x") +
-  scale_x_continuous(
-    breaks = chr_labels$mid,
-    labels = chr_labels$chr
-  ) +
+  scale_x_continuous(breaks = chr_labels$mid, labels = chr_labels$chr) +
   scale_y_continuous(limits = c(0, 0.5)) +
-  geom_hline(
-    yintercept = signif_cutoff,
-    linetype   = "dashed",
-    color      = "red"
-  ) +
+  geom_hline(yintercept = signif_cutoff,
+             linetype = "dashed", color = "red") +
   labs(x = "Chromosome", y = "IBD fraction", color = "Category") +
   guides(color = guide_legend(nrow = 2, byrow = TRUE)) +
-  theme_classic(base_size = 11) +
+  theme_classic(base_size = 14) +
   theme(
-    strip.text       = element_blank(),
-    strip.background = element_blank(),
-    axis.text.x      = element_text(size = 8),
-    axis.text.y      = element_text(size = 9),
-    axis.title       = element_text(size = 13),
-    legend.title     = element_text(size = 11),
-    legend.text      = element_text(size = 10),
-    legend.position  = "bottom"
+    strip.text        = element_blank(),
+    strip.background  = element_blank(),
+    axis.text.x       = element_text(size = 11),
+    axis.text.y       = element_text(size = 10),
+    axis.title        = element_text(size = 16),
+    legend.title      = element_text(size = 13),
+    legend.text       = element_text(size = 11),
+    legend.position   = "bottom"
   )
 
-ggsave(
-  filename = file.path(outdir, "ibd_genomewide_fraction.png"),
-  plot     = p_clean,
-  width    = 10,
-  height   = 10,
-  dpi      = 300
-)
+ggsave(file.path(outdir, "ibd_genomewide_fraction_cleaned.png"),
+       p_clean, width = 12, height = 14, dpi = 300)
 
 # ─────────────────────────────────────────────────────────────
-# Optional: gene overlap + candidate list
+# 3) CHROMOSOME PAINTING + DRUG RESISTANCE HIGHLIGHTING
 # ─────────────────────────────────────────────────────────────
 
-if (!is.null(gene_file) && file.exists(gene_file)) {
-  genes <- readr::read_tsv(gene_file, col_types = cols()) %>%
-    rename(
-      gene_chr_raw = chr,
-      gene_start   = pos_start,
-      gene_end     = pos_end,
-      gene_id      = gene_id,
-      product      = gene_product
-    ) %>%
-    mutate(gene_chr = as.numeric(str_extract(gene_chr_raw, "(?<=Pf3D7_)\\d{2}")))
-
-  ibd_outliers <- combined_ibd_tr %>%
-    filter(fraction > signif_cutoff) %>%
-    select(chr, win_start, win_end, fraction, category)
-
-  genes_of_interest <- inner_join(
-    ibd_outliers,
-    genes,
-    by = c("chr" = "gene_chr")
-  ) %>%
-    filter(win_start <= gene_end & win_end >= gene_start)
-
-  readr::write_tsv(
-    genes_of_interest,
-    file.path(outdir, "ibd_selection_candidate_genes.tsv")
-  )
-} else {
-  message("Gene annotation file not provided or not found; skipping candidate gene table.")
-}
-
-# ─────────────────────────────────────────────────────────────
-# Chromosome painting with high-IBD segments + drug genes
-# ─────────────────────────────────────────────────────────────
-
-# Collapse top-IBD windows into contiguous segments per category & chr
+# (a) collapse high-IBD windows into contiguous segments
 ibd_top <- combined_ibd_tr %>%
   filter(fraction > signif_cutoff) %>%
-  transmute(
-    category,
-    chr   = as.integer(chr),
-    start = as.numeric(win_start),
-    end   = as.numeric(win_end)
-  )
+  transmute(category,
+            chr   = as.integer(chr),
+            start = as.numeric(win_start),
+            end   = as.numeric(win_end))
 
 collapse_intervals <- function(df) {
   if (nrow(df) == 0) return(df)
-  setDT(df)[order(category, chr, start, end)]
-  df[, lag_end := shift(end, type = "lag"), by = .(category, chr)]
-  df[, grp := cumsum(ifelse(is.na(lag_end) | start > lag_end, 1L, 0L)),
+  dt <- as.data.table(df)
+  setorder(dt, category, chr, start, end)
+  dt[, lag_end := shift(end, type = "lag"), by = .(category, chr)]
+  dt[, grp := cumsum(ifelse(is.na(lag_end) | start > lag_end, 1L, 0L)),
      by = .(category, chr)]
-  df[, .(start = min(start), end = max(end)), by = .(category, chr, grp)][, grp := NULL][]
+  out <- dt[, .(start = min(start), end = max(end)),
+            by = .(category, chr, grp)]
+  out[, grp := NULL]
+  as_tibble(out)
 }
 
-ibd_segments <- collapse_intervals(ibd_top) %>% as_tibble()
+ibd_segments <- collapse_intervals(ibd_top)
 
-# Chromosome “pill” scaffolding for each facet
-pill_x <- tibble(chr = 1:14, x = chr)
+# (b) compute DR-gene overlapping segments from annotated file
+#     (uses either PRODUCT text or GENE_ID)
+res_gene_patterns <- c(
+  # product-based keywords
+  "Kelch13", "K13", "CRT", "chloroquine resistance transporter",
+  "DHFR", "dihydrofolate reductase",
+  "DHPS", "dihydropteroate synthetase", "PPPK-DHPS",
+  "MDR1", "multidrug resistance protein",
+  "UBP1", "ubiquitin carboxyl-terminal hydrolase 1",
+  "coronin", "AP2-MU", "PX1", "plasmepsin",
+  # optionally gene IDs if present
+  "PF3D7_0709000",  # CRT
+  "PF3D7_1343700",  # K13
+  "PF3D7_0417200",  # DHFR
+  "PF3D7_0810800",  # DHPS
+  "PF3D7_0104300",  # UBP1
+  "PF3D7_0629500",  # AAT1
+  "PF3D7_1410600",  # GCH1
+  "PF3D7_0720700",  # PX1
+  "PF3D7_1218300",  # AP2-MU
+  "PF3D7_0523000"   # MDR1
+)
+
+dr_pattern_regex <- regex(paste(res_gene_patterns, collapse = "|"),
+                          ignore_case = TRUE)
+
+dr_segments <- annot_ibd %>%
+  # expect: chr, start, end, category, gene_id, gene_name, gene_product (or similar)
+  rename_with(~tolower(.x)) %>%
+  # standardise names after lowering
+  rename(
+    chr        = chr,
+    win_start  = start,
+    win_end    = end,
+    gene_id    = gene_id,
+    gene_name  = gene_name,
+    gene_prod  = gene_product,
+    category   = category
+  ) %>%
+  mutate(
+    chr = as.integer(chr)
+  ) %>%
+  filter(!is.na(category), !is.na(chr), !is.na(win_start), !is.na(win_end)) %>%
+  mutate(
+    # try to detect DR genes via product OR ID/NAME
+    text_for_match = paste(gene_id, gene_name, gene_prod),
+    is_dr = str_detect(text_for_match, dr_pattern_regex)
+  ) %>%
+  filter(is_dr) %>%
+  mutate(
+    seg_start = pmax(win_start, ifelse(is.na(win_start), win_start, win_start)),
+    seg_end   = pmin(win_end,   ifelse(is.na(win_end),   win_end,   win_end))
+  ) %>%
+  transmute(category, chr, start = seg_start, end = seg_end) %>%
+  distinct()
+
+# (c) build chromosome “pill” scaffold
+pill_x <- tibble(chr = sort(unique(fai$chr_num))) %>%
+  mutate(x = chr)
 
 chr_lens <- fai %>% transmute(chr = chr_num, len_bp = end_chr)
 to_mb <- function(x) x / 1e6
 
-pill_backbone <- expand_grid(
+pill_backbone <- tidyr::expand_grid(
   category = factor(category_order, levels = category_order),
   pill_x
 ) %>%
   left_join(chr_lens, by = "chr") %>%
-  mutate(
-    y0 = 0,
-    y1 = to_mb(len_bp)
-  )
+  mutate(y0 = 0, y1 = to_mb(len_bp))
 
 paint_segs <- ibd_segments %>%
   left_join(pill_x, by = "chr") %>%
-  mutate(
-    y0 = to_mb(start),
-    y1 = to_mb(end)
-  )
+  mutate(y0 = to_mb(start),
+         y1 = to_mb(end))
 
-# Drug-resistance genes (fixed genomic coordinates)
-drug_genes <- tibble::tribble(
-  ~gene,     ~chr, ~start,   ~end,
-  "CRT",        7,  403000,  406000,
-  "K13",       13, 1724817, 1728000,
-  "MDR1",       5,  957500,  962000,
-  "DHFR",       4,  746000,  751000,
-  "DHPS",       8,  548000,  552000,
-  "PX1",        7,  889800,  899213,
-  "UBP1",       1,  188400,  201400,
-  "AP2-MU",    12,  716700,  720700,
-  "AAT1",       6, 1213100, 1217350
-)
-
-drug_df <- drug_genes %>%
-  mutate(
-    chr = as.integer(chr),
-    y0  = to_mb(start),
-    y1  = to_mb(end)
-  ) %>%
-  left_join(pill_x, by = "chr")
-
-# replicate drug bars across all categories
-drug_segs <- expand_grid(
-  category = factor(category_order, levels = category_order),
-  drug_df
-)
+dr_paint_segs <- dr_segments %>%
+  left_join(pill_x, by = "chr") %>%
+  mutate(y0 = to_mb(start),
+         y1 = to_mb(end))
 
 region_cols <- hue_pal()(length(category_order))
 names(region_cols) <- category_order
 
 paint_plot <- ggplot() +
-  # chromosome outline
-  geom_segment(
-    data = pill_backbone,
-    aes(x = x, xend = x, y = y0, yend = y1),
-    linewidth = 8.5,
-    lineend   = "round",
-    color     = "grey30"
-  ) +
-  # chromosome body
-  geom_segment(
-    data = pill_backbone,
-    aes(x = x, xend = x, y = y0, yend = y1),
-    linewidth = 6.0,
-    lineend   = "round",
-    color     = "white"
-  ) +
-  # drug-resistance gene bars (red, constant per facet)
-  geom_segment(
-    data = drug_segs,
-    aes(x = x, xend = x, y = y0, yend = y1),
-    linewidth = 4,
-    lineend   = "butt",
-    color     = "red",
-    alpha     = 0.9
-  ) +
-  # high-IBD segments (per category)
-  geom_segment(
-    data = paint_segs,
-    aes(x = x, xend = x, y = y0, yend = y1, color = category),
-    linewidth = 5,
-    lineend   = "butt",
-    alpha     = 0.9
-  ) +
+  # backbone outline
+  geom_segment(data = pill_backbone,
+               aes(x = x, xend = x, y = y0, yend = y1),
+               linewidth = 8.5, lineend = "round", color = "grey30") +
+  # inner body
+  geom_segment(data = pill_backbone,
+               aes(x = x, xend = x, y = y0, yend = y1),
+               linewidth = 6.0, lineend = "round", color = "white") +
+  # high-IBD segments (per-category colour)
+  geom_segment(data = paint_segs,
+               aes(x = x, xend = x, y = y0, yend = y1, color = category),
+               linewidth = 5, lineend = "butt", alpha = 0.9) +
+  # DR-overlapping segments (bright red on top)
+  geom_segment(data = dr_paint_segs,
+               aes(x = x, xend = x, y = y0, yend = y1),
+               linewidth = 5.2, lineend = "butt", color = "red", alpha = 0.95) +
   scale_color_manual(values = region_cols, guide = "none") +
-  facet_wrap(
-    ~ factor(category, levels = category_order),
-    ncol = 1,
-    strip.position = "left"
-  ) +
+  facet_wrap(~ factor(category, levels = category_order),
+             ncol = 1, strip.position = "left") +
+  # chromosome numbers above each pill
   geom_text(
     data = pill_backbone %>% group_by(category, chr, x) %>% slice_tail(),
     aes(x = x, y = y1 + 0.4, label = chr),
-    size = 4
+    size = 5
   ) +
   scale_y_continuous(
-    limits = c(0, max(pill_backbone$y1) + 0.6),
+    limits = c(0, max(pill_backbone$y1, na.rm = TRUE) + 0.6),
     expand = expansion(mult = c(0, 0.005))
   ) +
   scale_x_continuous(expand = expansion(mult = c(0.02, 0.02))) +
   coord_cartesian(clip = "off") +
   labs(x = NULL, y = NULL) +
-  theme_void(base_size = 11) +
+  theme_void(base_size = 14) +
   theme(
     strip.background   = element_blank(),
     strip.placement    = "outside",
-    strip.text.y.left  = element_text(
-      size   = 12,
-      face   = "bold",
-      margin = margin(r = 0),
-      angle  = 0
-    ),
-    aspect.ratio       = 0.6,
-    panel.spacing      = unit(6, "pt"),
+    strip.text.y.left  = element_text(size = 15, face = "bold",
+                                      margin = margin(r = 0), angle = 0),
+    aspect.ratio       = 0.58,
+    panel.spacing      = unit(8, "pt"),
     plot.margin        = margin(5, 10, 5, 10)
   )
 
-ggsave(
-  filename = file.path(outdir, "ibd_chromosome_painting.png"),
-  plot     = paint_plot,
-  width    = 7,
-  height   = 11,
-  dpi      = 300,
-  bg       = "white"
-)
+ggsave(file.path(outdir, "ibd_chromosome_painting.png"),
+       paint_plot, width = 8, height = 13, dpi = 300, bg = "white")
 
-message("Done.")
+message("Finished plotting IBD boxplot, genome-wide fraction, and chromosome painting (with DR highlights).")
