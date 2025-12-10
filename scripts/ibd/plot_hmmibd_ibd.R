@@ -163,7 +163,7 @@ g_box <- ggplot(fraction_ibd_plot,
   stat_summary(fun = mean, geom = "point", shape = 18,
                size = 1.8, color = "yellow") +
   theme_classic(base_size = 14) +  # moderate base font
-  ylim(0, 0.5) +
+  ylim(0, 0.25) +
   labs(x = NULL, y = "Pairwise fraction IBD") +
   theme(
     axis.text.x  = element_text(angle = 45, hjust = 1, size = 11),
