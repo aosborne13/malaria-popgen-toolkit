@@ -45,7 +45,7 @@ option_list <- list(
               help = "SNP-level annotation file (chr,pos,ref,alt,...) [required]",
               metavar = "character"),
   make_option(c("-c", "--category"), type = "character", default = NULL,
-              help = "Category name(s), comma-separated, or omit/ALL for all categories",
+              help = "Category name(s), comma-separated, or 'ALL' for all categories",
               metavar = "character"),
   make_option(c("--label_category"), type = "character", default = "country",
               help = "Column name in metadata for category [default %default]",
@@ -145,11 +145,20 @@ logp_thresh  <- opt$`logp-thresh`
 if (is.null(bin_mat_file)) {
   stop("ERROR: --matrix_binary is required\n", call. = FALSE)
 }
+if (!file.exists(bin_mat_file)) {
+  stop("ERROR: matrix_binary file not found: ", bin_mat_file, "\n", call. = FALSE)
+}
 if (is.null(metadata_file)) {
   stop("ERROR: --metadata is required\n", call. = FALSE)
 }
+if (!file.exists(metadata_file)) {
+  stop("ERROR: metadata file not found: ", metadata_file, "\n", call. = FALSE)
+}
 if (is.null(annotation_file)) {
   stop("ERROR: --annotation is required\n", call. = FALSE)
+}
+if (!file.exists(annotation_file)) {
+  stop("ERROR: annotation file not found: ", annotation_file, "\n", call. = FALSE)
 }
 if (is.null(genome_file) || !file.exists(genome_file)) {
   stop("ERROR: --genome-file must be provided and must exist.\n", call. = FALSE)
@@ -167,10 +176,8 @@ message("Genome file:    ", genome_file)
 # ─────────────────────────────────────────────────────────────
 # Load annotation & metadata
 # ─────────────────────────────────────────────────────────────
-annotation <- read.table(annotation_file, sep = "\t", fill = TRUE,
-                         header = TRUE, stringsAsFactors = FALSE)
-metadata_all <- read.csv(metadata_file, sep = "\t", header = TRUE,
-                         stringsAsFactors = FALSE)
+annotation_raw <- read_tsv(annotation_file, show_col_types = FALSE)
+metadata_all   <- read_tsv(metadata_file, show_col_types = FALSE)
 
 needed_cols <- c(label_id, label_category, label_fws)
 if (!all(needed_cols %in% colnames(metadata_all))) {
@@ -257,10 +264,6 @@ genes_clean <- genes %>%
 
 # ─────────────────────────────────────────────────────────────
 # Main loop: for each category
-#   1) subset matrix + metadata
-#   2) recode & MAF filter
-#   3) build haplohh & scan_hh per chromosome
-#   4) ihh2ihs
 # ─────────────────────────────────────────────────────────────
 
 all_ihs <- list()
@@ -285,6 +288,12 @@ for (category in categories) {
     dplyr::select(all_of(label_id)) %>%
     pull() %>%
     unique()
+
+  if (length(sample_ids) == 0) {
+    warning("  Category ", category, ": no sample IDs in metadata; skipping.")
+    next
+  }
+
   samples_select <- c("chr", "pos", "ref", sample_ids)
 
   message("  Loading SNP matrix subset for category (",
@@ -298,15 +307,18 @@ for (category in categories) {
     stop("ERROR: Matrix must start with columns: chr, pos, ref\n", call. = FALSE)
   }
 
+  # Copy annotation so we don't mutate the global version
+  annotation <- annotation_raw
+
   # Filter chromosomes if requested
   if (!is.null(rm_chr_str) && nzchar(rm_chr_str)) {
     rm_chr <- strsplit(rm_chr_str, ",")[[1]] |> trimws()
     if (any(rm_chr %in% unique(snp$chr))) {
       message("  Removing chromosomes: ", paste(rm_chr, collapse = ", "))
-      snp <- snp %>% filter(!chr %in% rm_chr)
+      snp        <- snp        %>% filter(!chr %in% rm_chr)
       annotation <- annotation %>% filter(!chr %in% rm_chr)
     } else {
-      warning("  None of the chromosomes in --remove_chr found in matrix; continuing.")
+      warning("  None of the chromosomes in --remove_chr found in matrix for this category; continuing.")
     }
   } else {
     message("  No chromosomes removed (API/mito may still be present).")
@@ -390,6 +402,11 @@ for (category in categories) {
     left_join(annotation, by = c("chr", "pos", "ref")) %>%
     tidyr::unite("info", c(chr, pos), sep = "_", remove = FALSE)
 
+  if (!all(c("alt") %in% colnames(snp_annot))) {
+    stop("ERROR: annotation must contain at least columns chr,pos,ref,alt.\n",
+         call. = FALSE)
+  }
+
   map <- snp_annot %>%
     select(info, chr, pos, ref, alt) %>%
     distinct()
@@ -451,7 +468,7 @@ for (category in categories) {
     next
   }
 
-  # Store scan_hh results per category (for debugging / reuse)
+  # Store scan_hh results per category
   scanned_file <- file.path(workdir,
                             sprintf("scanned_haplotypes_%s.tsv", category_str))
   results_hh$category <- category_str
@@ -556,9 +573,9 @@ p_ihs <- ggplot(ihs_all, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
 ggsave(file.path(plot_dir, "manhattan_ihs_per_country.png"),
        p_ihs, width = 16, height = 10)
 
-# -log10(p)
+# -log10(p) – LOGPVALUE from ihh2ihs is already -log10(p)
 ihs_all <- ihs_all %>%
-  mutate(logp = -log10(10^(-LOGPVALUE)))
+  mutate(logp = LOGPVALUE)
 
 p_logp <- ggplot(ihs_all, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
   geom_point(alpha = 0.4, size = 0.7) +
@@ -610,7 +627,8 @@ if (nrow(ihs_focus) > 0) {
 
   ihs_focus <- ihs_focus %>%
     left_join(chr_offsets_f, by = "CHR") %>%
-    mutate(POS_cum = POSITION + chr_offset)
+    mutate(POS_cum = POSITION + chr_offset,
+           logp    = LOGPVALUE)
 
   axis_df_f <- ihs_focus %>%
     group_by(CHR) %>%
@@ -628,7 +646,7 @@ if (nrow(ihs_focus) > 0) {
     geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
                linetype = "dashed", color = "black") +
     labs(x = "Chromosome", y = "iHS",
-         title = paste("iHS", focus_pop)) +
+         title = paste("iHS:", focus_pop)) +
     theme_bw() +
     theme(
       legend.position = "none",
@@ -641,9 +659,6 @@ if (nrow(ihs_focus) > 0) {
          p_ihs_f, width = 12, height = 6)
 
   # -log10(p)
-  ihs_focus <- ihs_focus %>%
-    mutate(logp = -log10(10^(-LOGPVALUE)))
-
   p_logp_f <- ggplot(ihs_focus,
                      aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1) +
@@ -673,7 +688,6 @@ if (nrow(ihs_focus) > 0) {
 
   ihs_focus_full <- ihs_focus_ord %>%
     inner_join(genes_clean, by = "CHR") %>%
-    mutate(logp = -log10(10^(-LOGPVALUE))) %>%
     filter(POSITION >= START, POSITION <= END)
 
   label_logp <- ihs_focus_full %>%
@@ -711,7 +725,7 @@ if (nrow(ihs_focus) > 0) {
                        breaks = axis_df_f$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     labs(x = "Chromosome", y = "-log10(p-value)",
-         title = paste("-log10(p):", focus_pop)) +
+         title = paste("-log10(p):", focus_pop, "(annotated)")) +
     theme_bw() +
     theme(
       legend.position = "none",
@@ -741,7 +755,7 @@ if (nrow(ihs_focus) > 0) {
                        breaks = axis_df_f$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     labs(x = "Chromosome", y = "iHS",
-         title = paste("iHS:", focus_pop)) +
+         title = paste("iHS:", focus_pop, "(annotated)")) +
     theme_bw() +
     theme(
       legend.position = "none",
