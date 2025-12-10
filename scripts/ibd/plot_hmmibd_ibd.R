@@ -88,13 +88,34 @@ message("Output dir: ", outdir)
 # Load summary + annotation files
 # ─────────────────────────────────────────────────────────────
 
-ibd_file <- file.path(workdir,
-                      sprintf("%s_hmmIBD_ibd_win%dkb.tsv", suffix, window_kb))
-frac_file <- file.path(workdir,
-                       sprintf("%s_hmmIBD_fraction.tsv", suffix))
-annot_file <- file.path(workdir,
-                        sprintf("%s_hmmIBD_ibd_win%dkb_annotated_q%.2f.tsv",
-                                suffix, window_kb, quantile_cutoff))
+ibd_file <- file.path(
+  workdir,
+  sprintf("%s_hmmIBD_ibd_win%dkb.tsv", suffix, window_kb)
+)
+frac_file <- file.path(
+  workdir,
+  sprintf("%s_hmmIBD_fraction.tsv", suffix)
+)
+
+# Robust handling of annotated filename: support both q0.90 and q0.9
+q_str_full  <- sprintf("%.2f", quantile_cutoff)          # e.g. "0.90"
+q_str_short <- sub("0+$", "", q_str_full)                # e.g. "0.9"
+
+annot_candidates <- c(
+  file.path(
+    workdir,
+    sprintf("%s_hmmIBD_ibd_win%dkb_annotated_q%s.tsv",
+            suffix, window_kb, q_str_full)
+  ),
+  file.path(
+    workdir,
+    sprintf("%s_hmmIBD_ibd_win%dkb_annotated_q%s.tsv",
+            suffix, window_kb, q_str_short)
+  )
+)
+
+annot_file_existing <- annot_candidates[file.exists(annot_candidates)]
+annot_file <- if (length(annot_file_existing) > 0) annot_file_existing[1] else NA
 
 if (!file.exists(ibd_file)) {
   stop("Cannot find IBD window file: ", ibd_file, call. = FALSE)
@@ -102,10 +123,17 @@ if (!file.exists(ibd_file)) {
 if (!file.exists(frac_file)) {
   stop("Cannot find fraction file: ", frac_file, call. = FALSE)
 }
-if (!file.exists(annot_file)) {
-  stop("Cannot find annotated IBD windows file: ", annot_file,
-       "\nMake sure summarise_hmmibd_windows.R has been run.", call. = FALSE)
+if (is.na(annot_file)) {
+  stop(
+    "Cannot find annotated IBD windows file.\n",
+    "Tried:\n  ",
+    paste(annot_candidates, collapse = "\n  "),
+    "\nMake sure summarise_hmmibd_windows.R has been run and --quantile_cutoff matches.",
+    call. = FALSE
+  )
 }
+
+message("Using annotated file: ", annot_file)
 
 combined_ibd <- readr::read_tsv(ibd_file, col_types = cols())
 fraction_ibd <- readr::read_tsv(frac_file, col_types = cols())
@@ -260,7 +288,7 @@ res_gene_patterns <- c(
   "MDR1", "multidrug resistance protein",
   "UBP1", "ubiquitin carboxyl-terminal hydrolase 1",
   "coronin", "AP2-MU", "PX1", "plasmepsin",
-  # optionally gene IDs if present
+  # gene IDs
   "PF3D7_0709000",  # CRT
   "PF3D7_1343700",  # K13
   "PF3D7_0417200",  # DHFR
