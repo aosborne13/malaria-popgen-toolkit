@@ -44,12 +44,20 @@ option_list <- list(
   make_option(c("-a", "--annotation"), type = "character", default = NULL,
               help = "SNP-level annotation file (chr,pos,ref,alt,...) [required]",
               metavar = "character"),
+
+  # Primary grouping (e.g. country) and optional subgroup (e.g. year)
   make_option(c("-c", "--category"), type = "character", default = NULL,
-              help = "Category name(s), comma-separated, or 'ALL' for all categories",
+              help = "Primary category value(s) in label_category column "
+                     "(comma-separated) or 'ALL' for all.",
               metavar = "character"),
   make_option(c("--label_category"), type = "character", default = "country",
-              help = "Column name in metadata for category [default %default]",
+              help = "Column name in metadata for primary category (e.g. country) [default %default]",
               metavar = "character"),
+  make_option(c("--subgroup_col"), type = "character", default = NULL,
+              help = "Optional subgroup column in metadata (e.g. year); if set, "
+                     "iHS is run per (category, subgroup) combo.",
+              metavar = "character"),
+
   make_option(c("--label_id"), type = "character", default = "sample_id",
               help = "Column name in metadata for sample ID [default %default]",
               metavar = "character"),
@@ -93,7 +101,8 @@ option_list <- list(
               help = "Pf genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
               metavar = "character"),
   make_option(c("--focus-pop"), type = "character", default = NULL,
-              help = "Focus population for detailed plots [default: first category]",
+              help = "Focus population label for detailed plots "
+                     "(must match one of the resulting categories, e.g. Ethiopia_2017)",
               metavar = "character"),
   make_option(c("--min-maf-ihs"), type = "numeric", default = 0.0,
               help = "min_maf argument to ihh2ihs [default %default]",
@@ -121,6 +130,7 @@ metadata_file   <- opt$metadata
 annotation_file <- opt$annotation
 category_arg    <- opt$category
 label_category  <- opt$label_category
+subgroup_col    <- opt$subgroup_col
 label_id        <- opt$label_id
 label_fws       <- opt$label_fws
 threshold_fws   <- opt$fws_th
@@ -189,43 +199,113 @@ if (!all(needed_cols %in% colnames(metadata_all))) {
 metadata_all[[label_category]] <- as.character(metadata_all[[label_category]])
 metadata_all[[label_id]]       <- as.character(metadata_all[[label_id]])
 
-available_categories <- metadata_all %>%
-  dplyr::select(all_of(label_category)) %>%
-  distinct() %>%
-  pull() %>%
-  sort()
-
-if (length(available_categories) == 0) {
-  stop("ERROR: No categories found in metadata column '", label_category, "'.\n",
-       call. = FALSE)
+if (!is.null(subgroup_col) && nzchar(subgroup_col)) {
+  if (!subgroup_col %in% colnames(metadata_all)) {
+    stop("ERROR: subgroup_col '", subgroup_col,
+         "' not found in metadata.\n", call. = FALSE)
+  }
 }
 
-message("Available categories: ", paste(available_categories, collapse = ", "))
+# Build grouping definition table (cat_def)
+# cat_def has columns: parent_cat, subgroup (may be NA), cat_label
+if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
+  # Old behaviour: categories = values of label_category (e.g. countries)
+  available_categories <- metadata_all %>%
+    dplyr::select(all_of(label_category)) %>%
+    distinct() %>%
+    pull() %>%
+    sort()
 
-# Decide which categories to run
-if (is.null(category_arg) || category_arg == "" ||
-    tolower(category_arg) == "all") {
-  categories <- available_categories
-  message("No specific category provided; using ALL categories.")
-} else {
-  categories <- strsplit(category_arg, ",")[[1]] |> trimws()
-  missing_cats <- setdiff(categories, available_categories)
-  if (length(missing_cats) > 0) {
-    stop("ERROR: Requested category(ies) not found in metadata: ",
-         paste(missing_cats, collapse = ", "), "\n",
-         "Available: ", paste(available_categories, collapse = ", "), "\n",
+  if (length(available_categories) == 0) {
+    stop("ERROR: No categories found in metadata column '", label_category, "'.\n",
          call. = FALSE)
   }
-  message("Using selected category(ies): ", paste(categories, collapse = ", "))
+
+  message("Available categories in ", label_category, ": ",
+          paste(available_categories, collapse = ", "))
+
+  if (is.null(category_arg) || category_arg == "" ||
+      tolower(category_arg) == "all") {
+    categories_vec <- available_categories
+    message("No specific category provided; using ALL categories.")
+  } else {
+    categories_vec <- strsplit(category_arg, ",")[[1]] |> trimws()
+    missing_cats <- setdiff(categories_vec, available_categories)
+    if (length(missing_cats) > 0) {
+      stop("ERROR: Requested category(ies) not found in metadata: ",
+           paste(missing_cats, collapse = ", "), "\n",
+           "Available: ", paste(available_categories, collapse = ", "), "\n",
+           call. = FALSE)
+    }
+  }
+
+  cat_def <- tibble(
+    parent_cat = categories_vec,
+    subgroup   = NA_character_,
+    cat_label  = categories_vec
+  )
+  message("Will run iHS for categories: ",
+          paste(cat_def$cat_label, collapse = ", "))
+
+} else {
+  # New behaviour: (parent category, subgroup) combos, e.g. Ethiopia x year
+  combo_tbl <- metadata_all %>%
+    filter(!is.na(.data[[label_category]]),
+           !is.na(.data[[subgroup_col]])) %>%
+    distinct(parent_cat = .data[[label_category]],
+             subgroup   = .data[[subgroup_col]])
+
+  if (nrow(combo_tbl) == 0) {
+    stop("ERROR: No (", label_category, ", ", subgroup_col,
+         ") combinations found in metadata.\n", call. = FALSE)
+  }
+
+  message("Available primary categories in ", label_category, ": ",
+          paste(sort(unique(combo_tbl$parent_cat)), collapse = ", "))
+
+  if (is.null(category_arg) || category_arg == "" ||
+      tolower(category_arg) == "all") {
+    requested_parents <- sort(unique(combo_tbl$parent_cat))
+    message("No specific primary category provided; using ALL: ",
+            paste(requested_parents, collapse = ", "))
+  } else {
+    requested_parents <- strsplit(category_arg, ",")[[1]] |> trimws()
+    missing_parents <- setdiff(requested_parents, combo_tbl$parent_cat)
+    if (length(missing_parents) > 0) {
+      stop("ERROR: Requested primary category(ies) not found in metadata: ",
+           paste(missing_parents, collapse = ", "), "\n",
+           "Available: ", paste(sort(unique(combo_tbl$parent_cat)),
+                                collapse = ", "), "\n",
+           call. = FALSE)
+    }
+  }
+
+  cat_def <- combo_tbl %>%
+    filter(parent_cat %in% requested_parents) %>%
+    mutate(
+      subgroup  = as.character(subgroup),
+      cat_label = paste(parent_cat, subgroup, sep = "_")
+    ) %>%
+    arrange(parent_cat, subgroup)
+
+  if (nrow(cat_def) == 0) {
+    stop("ERROR: No (category, subgroup) combinations left after filtering.\n",
+         call. = FALSE)
+  }
+
+  message("Will run iHS for groups: ",
+          paste(cat_def$cat_label, collapse = ", "))
 }
 
-# Decide focus population (default: first category after filtering)
-if (is.null(focus_pop) || focus_pop == "" || !(focus_pop %in% categories)) {
-  if (!is.null(focus_pop) && focus_pop != "" && !(focus_pop %in% categories)) {
+# Decide focus population label (must match cat_label)
+if (is.null(focus_pop) || focus_pop == "" ||
+    !(focus_pop %in% cat_def$cat_label)) {
+  if (!is.null(focus_pop) && focus_pop != "" &&
+      !(focus_pop %in% cat_def$cat_label)) {
     warning("Requested focus-pop '", focus_pop,
-            "' not in selected categories; defaulting to first category.\n")
+            "' not among resulting groups; defaulting to first.\n")
   }
-  focus_pop <- categories[1]
+  focus_pop <- cat_def$cat_label[1]
 }
 message("Focus population: ", focus_pop)
 
@@ -263,39 +343,49 @@ genes_clean <- genes %>%
   select(CHR, START, END, GENE_ID, GENE_NAME, PRODUCT)
 
 # ─────────────────────────────────────────────────────────────
-# Main loop: for each category
+# Main loop: for each (parent_cat, subgroup, cat_label)
 # ─────────────────────────────────────────────────────────────
 all_ihs <- list()
 
-for (category in categories) {
+for (i_grp in seq_len(nrow(cat_def))) {
+  parent_cat   <- cat_def$parent_cat[i_grp]
+  subgroup_val <- cat_def$subgroup[i_grp]
+  cat_label    <- cat_def$cat_label[i_grp]
+
   message("\n==============================")
-  message("Category: ", category)
+  message("Category group: ", cat_label)
   message("==============================")
 
-  meta_cat <- metadata_all %>%
-    filter(.data[[label_category]] == category)
+  if (is.na(subgroup_val)) {
+    meta_cat <- metadata_all %>%
+      filter(.data[[label_category]] == parent_cat)
+  } else {
+    meta_cat <- metadata_all %>%
+      filter(.data[[label_category]] == parent_cat,
+             .data[[subgroup_col]] == subgroup_val)
+  }
 
   if (nrow(meta_cat) == 0) {
-    warning("  Category ", category, " has no metadata rows; skipping.")
+    warning("  Group ", cat_label, " has no metadata rows; skipping.")
     next
   }
 
-  category_str <- gsub(" ", "_", category)
+  category_str <- gsub(" ", "_", cat_label)
 
-  # Columns to select from binary matrix: chr,pos,ref + samples in this category
+  # Columns to select from binary matrix: chr,pos,ref + samples in this group
   sample_ids <- meta_cat %>%
     dplyr::select(all_of(label_id)) %>%
     pull() %>%
     unique()
 
   if (length(sample_ids) == 0) {
-    warning("  Category ", category, ": no sample IDs in metadata; skipping.")
+    warning("  Group ", cat_label, ": no sample IDs in metadata; skipping.")
     next
   }
 
   samples_select <- c("chr", "pos", "ref", sample_ids)
 
-  message("  Loading SNP matrix subset for category (",
+  message("  Loading SNP matrix subset for group (",
           length(sample_ids), " samples)...")
 
   snp <- fread(bin_mat_file, sep = "\t",
@@ -317,7 +407,7 @@ for (category in categories) {
       snp        <- snp        %>% filter(!chr %in% rm_chr)
       annotation <- annotation %>% filter(!chr %in% rm_chr)
     } else {
-      warning("  None of the chromosomes in --remove_chr found in matrix for this category; continuing.")
+      warning("  None of the chromosomes in --remove_chr found in matrix for this group; continuing.")
     }
   } else {
     message("  No chromosomes removed (API/mito may still be present).")
@@ -331,13 +421,13 @@ for (category in categories) {
   meta_cat <- meta_cat %>%
     filter(.data[[label_id]] %in% colnames(snp)[-(1:3)])
   if (nrow(meta_cat) < 2) {
-    warning("  Category ", category, ": fewer than 2 samples in matrix; skipping.")
+    warning("  Group ", cat_label, ": fewer than 2 samples in matrix; skipping.")
     next
   }
 
   # Re-check ordering / overlap
   if (!all(meta_cat[[label_id]] %in% colnames(snp)[-(1:3)])) {
-    warning("  Some metadata samples are missing from matrix for category ", category)
+    warning("  Some metadata samples are missing from matrix for group ", cat_label)
   }
 
   # Recode missing data
@@ -374,7 +464,7 @@ for (category in categories) {
   rm(maf_vals)
 
   if (length(to_keep_sti) == 0) {
-    warning("  Category ", category, ": no SNPs pass MAF ≥ ", th_maf, "; skipping.")
+    warning("  Group ", cat_label, ": no SNPs pass MAF ≥ ", th_maf, "; skipping.")
     next
   }
 
@@ -389,7 +479,7 @@ for (category in categories) {
     unique()
 
   if (length(samples_keep) < 2) {
-    warning("  Category ", category, ": fewer than 2 samples pass Fws ≥ ",
+    warning("  Group ", cat_label, ": fewer than 2 samples pass Fws ≥ ",
             threshold_fws, "; skipping.")
     next
   }
@@ -422,8 +512,9 @@ for (category in categories) {
   rm(maj4, hap)
 
   hap_c <- as.data.frame(hap_c, stringsAsFactors = FALSE)
-  i <- sapply(hap_c, is.character)
-  hap_c[i] <- lapply(hap_c[i], function(x) suppressWarnings(as.numeric(x)))
+  is_char <- sapply(hap_c, is.character)
+  hap_c[is_char] <- lapply(hap_c[is_char],
+                           function(x) suppressWarnings(as.numeric(x)))
 
   # Create haplotypes per chromosome and run scan_hh
   u_chr <- sort(unique(map$chr))
@@ -431,7 +522,7 @@ for (category in categories) {
 
   log_file <- file.path(workdir, paste0(category_str, "_rehh.log"))
   sink(log_file, append = FALSE)
-  cat("## Create haplotypes: data2haplohh() & scan_hh() for category ",
+  cat("## Create haplotypes: data2haplohh() & scan_hh() for group ",
       category_str, " ##\n", sep = "")
 
   for (uchr in u_chr) {
@@ -451,7 +542,7 @@ for (category in categories) {
 
     # sanity check: genotype columns = markers in map
     if (ncol(hap_chr_s) != nrow(map_chr)) {
-      stop("For category ", category_str, " chr ", uchr,
+      stop("For group ", category_str, " chr ", uchr,
            ": number of markers in hap (", ncol(hap_chr_s),
            ") != markers in map (", nrow(map_chr), ").", call. = FALSE)
     }
@@ -486,11 +577,11 @@ for (category in categories) {
   sink()
 
   if (is.null(results_hh) || nrow(results_hh) == 0) {
-    warning("  scan_hh produced no results for category ", category, "; skipping.")
+    warning("  scan_hh produced no results for group ", cat_label, "; skipping.")
     next
   }
 
-  # Store scan_hh results per category
+  # Store scan_hh results per group
   scanned_file <- file.path(workdir,
                             sprintf("scanned_haplotypes_%s.tsv", category_str))
   results_hh$category <- category_str
@@ -498,31 +589,28 @@ for (category in categories) {
               quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
   message("  Wrote scan_hh results: ", scanned_file)
 
-  # Compute iHS for this category
+  # Compute iHS for this group
   message("  Computing iHS via ihh2ihs()...")
   ihs_obj <- ihh2ihs(results_hh, min_maf = min_maf_ihs, freqbin = freqbin)
 
   if (!is.null(ihs_obj$ihs)) {
     ihs_tbl <- as_tibble(ihs_obj$ihs) %>%
-      mutate(category_name = category)
-    all_ihs[[category]] <- ihs_tbl
+      mutate(category_name = cat_label)
+    all_ihs[[cat_label]] <- ihs_tbl
     message("  iHS markers: ", nrow(ihs_tbl))
   } else {
-    warning("  No valid iHS markers for category: ", category)
+    warning("  No valid iHS markers for group: ", cat_label)
   }
 }
 
 if (length(all_ihs) == 0) {
-  stop("No iHS data could be computed for any category.\n", call. = FALSE)
+  stop("No iHS data could be computed for any group.\n", call. = FALSE)
 }
 
 # ─────────────────────────────────────────────────────────────
-# Combine iHS for all categories, annotate extreme sites
+# Combine iHS for all groups, coerce CHR/POSITION to numeric, annotate extremes
 # ─────────────────────────────────────────────────────────────
-ihs_all_countries <- bind_rows(all_ihs)
-
-# Make sure CHR and POSITION are numeric to match genes_clean
-ihs_all_countries <- ihs_all_countries %>%
+ihs_all_countries <- bind_rows(all_ihs) %>%
   mutate(
     CHR      = as.numeric(CHR),
     POSITION = as.numeric(POSITION)
@@ -548,7 +636,7 @@ write_tsv(ihs_annotated, annot_file)
 message("Wrote extreme iHS annotation: ", annot_file)
 
 # ─────────────────────────────────────────────────────────────
-# Per-category Manhattan plots
+# Per-group Manhattan plots
 # ─────────────────────────────────────────────────────────────
 plot_dir <- file.path(workdir, "plots")
 dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
@@ -600,7 +688,7 @@ p_ihs <- ggplot(ihs_all, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     strip.text      = element_text(size = 9)
   )
 
-ggsave(file.path(plot_dir, "manhattan_ihs_per_country.png"),
+ggsave(file.path(plot_dir, "manhattan_ihs_per_group.png"),
        p_ihs, width = 16, height = 10)
 
 # -log10(p) – LOGPVALUE from ihh2ihs is already -log10(p)
@@ -623,13 +711,17 @@ p_logp <- ggplot(ihs_all, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR)))
     strip.text      = element_text(size = 9)
   )
 
-ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_country.png"),
+ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_group.png"),
        p_logp, width = 16, height = 10)
 
 # ─────────────────────────────────────────────────────────────
 # Focus population – detailed plots + TSVs
 # ─────────────────────────────────────────────────────────────
 ihs_focus <- ihs_all_countries %>%
+  mutate(
+    CHR      = as.numeric(CHR),
+    POSITION = as.numeric(POSITION)
+  ) %>%
   filter(category_name == focus_pop, CHR %in% 1:14)
 
 if (nrow(ihs_focus) > 0) {
@@ -809,4 +901,5 @@ if (nrow(ihs_focus) > 0) {
 }
 
 message("\nDone with iHS scanning + plotting.")
+
 
