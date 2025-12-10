@@ -162,6 +162,7 @@ g_box <- ggplot(fraction_ibd_plot,
   geom_boxplot(outlier.alpha = 0.25, width = 0.6) +
   stat_summary(fun = mean, geom = "point",
                shape = 23, size = 2.5, fill = "yellow", color = "black") +
+  ylim(0, 0.5) +
   labs(x = NULL, y = "Pairwise fraction IBD") +
   theme_classic(base_size = 11) +
   theme(
