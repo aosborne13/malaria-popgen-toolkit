@@ -25,17 +25,23 @@ option_list <- list(
   make_option(c("-d", "--data-dir"), type = "character", default = ".",
               help = "Directory with scanned_haplotypes_*.tsv and where outputs will be written [default %default]",
               metavar = "character"),
-  make_option(c("--country-list"), type = "character", default = NULL,
-              help = "Text file with one country name per line (for scanned_haplotypes_<country>.tsv)",
+  make_option(c("-m", "--metadata"), type = "character", default = NULL,
+              help = "Full path to metadata TSV file [required]",
+              metavar = "character"),
+  make_option(c("-c", "--category"), type = "character", default = NULL,
+              help = "Category name (e.g. Ethiopia), comma-separated list, or omit/empty for ALL",
+              metavar = "character"),
+  make_option(c("--label_category"), type = "character", default = "country",
+              help = "Column name in metadata for category [default %default]",
               metavar = "character"),
   make_option(c("--genome-file"), type = "character", default = NULL,
               help = "Pf genome product annotation TSV (e.g. pf_genome_product_v3.tsv) [required]",
               metavar = "character"),
-  make_option(c("--focus-pop"), type = "character", default = "Ethiopia",
-              help = "Name of focal population for detailed plots (default %default)",
+  make_option(c("--focus-pop"), type = "character", default = NULL,
+              help = "Name of focal population for detailed plots [default: first selected category]",
               metavar = "character"),
   make_option(c("--years"), type = "character", default = "2013,2017,2021",
-              help = "Comma-separated list of years for focus-pop by-year iHS (scanned_haplotypes_<year>.tsv) [default %default]",
+              help = "Comma-separated list of years for by-year iHS (scanned_haplotypes_<year>.tsv) [default %default]",
               metavar = "character"),
   make_option(c("--min-maf"), type = "numeric", default = 0.0,
               help = "min_maf argument to ihh2ihs [default %default]",
@@ -53,39 +59,87 @@ option_list <- list(
 
 opt <- parse_args(OptionParser(option_list = option_list))
 
-data_dir    <- opt$`data-dir`
-country_lst <- opt$`country-list`
-genome_file <- opt$`genome-file`
-focus_pop   <- opt$`focus-pop`
-years_str   <- opt$years
-min_maf     <- opt$`min-maf`
-freqbin     <- opt$freqbin
-ihs_thresh  <- opt$`ihs-thresh`
-logp_thresh <- opt$`logp-thresh`
+data_dir       <- opt$`data-dir`
+metadata_file  <- opt$metadata
+category_arg   <- opt$category
+label_category <- opt$label_category
+genome_file    <- opt$`genome-file`
+focus_pop      <- opt$`focus-pop`
+years_str      <- opt$years
+min_maf        <- opt$`min-maf`
+freqbin        <- opt$freqbin
+ihs_thresh     <- opt$`ihs-thresh`
+logp_thresh    <- opt$`logp-thresh`
 
 if (is.null(genome_file) || !file.exists(genome_file)) {
   stop("ERROR: --genome-file must be provided and must exist.\n", call. = FALSE)
 }
-if (is.null(country_lst) || !file.exists(country_lst)) {
-  stop("ERROR: --country-list must be provided and must exist.\n", call. = FALSE)
+if (is.null(metadata_file) || !file.exists(metadata_file)) {
+  stop("ERROR: --metadata must be provided and must exist.\n", call. = FALSE)
 }
 
 years <- strsplit(years_str, ",")[[1]] |> trimws()
 dir.create(file.path(data_dir, "plots"), showWarnings = FALSE, recursive = TRUE)
 plot_dir <- file.path(data_dir, "plots")
 
-message("Data dir:     ", data_dir)
-message("Genome file:  ", genome_file)
-message("Country list: ", country_lst)
-message("Focus pop:    ", focus_pop)
-message("Years:        ", paste(years, collapse = ", "))
+# ─────────────────────────────────────────────────────────────
+# Load metadata & determine categories (like IBD script)
+# ─────────────────────────────────────────────────────────────
+
+metadata <- read_tsv(metadata_file, show_col_types = FALSE)
+
+if (!(label_category %in% colnames(metadata))) {
+  stop("ERROR: label_category column '", label_category,
+       "' not found in metadata.\nAvailable columns: ",
+       paste(colnames(metadata), collapse = ", "), "\n",
+       call. = FALSE)
+}
+
+metadata[[label_category]] <- as.character(metadata[[label_category]])
+available_categories <- sort(unique(metadata[[label_category]][!is.na(metadata[[label_category]])]))
+
+if (length(available_categories) == 0) {
+  stop("ERROR: No non-NA categories found in metadata column '", label_category, "'.\n", call. = FALSE)
+}
+
+if (is.null(category_arg) || category_arg == "" || tolower(category_arg) == "all") {
+  categories <- available_categories
+  message("No specific category provided; using ALL categories from metadata: ",
+          paste(categories, collapse = ", "))
+} else {
+  categories <- strsplit(category_arg, ",")[[1]] |> trimws()
+  missing_cats <- setdiff(categories, available_categories)
+  if (length(missing_cats) > 0) {
+    stop("ERROR: Requested category(ies) not found in metadata: ",
+         paste(missing_cats, collapse = ", "), "\n",
+         "Available: ", paste(available_categories, collapse = ", "), "\n",
+         call. = FALSE)
+  }
+  message("Using selected category(ies): ", paste(categories, collapse = ", "))
+}
+
+# Decide focus population (default: first category)
+if (is.null(focus_pop) || focus_pop == "" || !(focus_pop %in% categories)) {
+  if (!is.null(focus_pop) && focus_pop != "" && !(focus_pop %in% categories)) {
+    warning("Requested focus-pop '", focus_pop,
+            "' not in selected categories; defaulting to first category.\n")
+  }
+  focus_pop <- categories[1]
+}
+
+message("Data dir:      ", data_dir)
+message("Genome file:   ", genome_file)
+message("Metadata file: ", metadata_file)
+message("Categories:    ", paste(categories, collapse = ", "))
+message("Focus pop:     ", focus_pop)
+message("Years:         ", paste(years, collapse = ", "))
 
 # ─────────────────────────────────────────────────────────────
 # DR gene regions
 # ─────────────────────────────────────────────────────────────
 
 drug_genes <- tibble::tribble(
-  ~gene,     ~CHR, ~START,   ~END,
+  ~gene,   ~CHR, ~START,   ~END,
   "CRT",        7,  403000,  406000,
   "K13",       13, 1724817, 1728000,
   "MDR1",       5,  957500,  962000,
@@ -98,42 +152,36 @@ drug_genes <- tibble::tribble(
 )
 
 # ─────────────────────────────────────────────────────────────
-# 1. Compute iHS per country
+# 1. Compute iHS per category
 # ─────────────────────────────────────────────────────────────
-
-countries <- readLines(country_lst) |> trimws()
-countries <- countries[countries != ""]
-
-if (length(countries) == 0) {
-  stop("Country list is empty.\n", call. = FALSE)
-}
 
 all_ihs <- list()
 
-for (country in countries) {
-  file_path <- file.path(data_dir, sprintf("scanned_haplotypes_%s.tsv", country))
+for (cat_val in categories) {
+  file_path <- file.path(data_dir, sprintf("scanned_haplotypes_%s.tsv", cat_val))
   if (!file.exists(file_path)) {
-    warning("File not found for country ", country, ": ", file_path)
+    warning("File not found for category ", cat_val, ": ", file_path)
     next
   }
 
-  cat("Computing iHS for country:", country, "\n")
+  cat("Computing iHS for category:", cat_val, "\n")
   scan_data <- read.table(file_path, header = TRUE)
   ihs <- ihh2ihs(scan_data, min_maf = min_maf, freqbin = freqbin)
 
   if (!is.null(ihs$ihs)) {
     ihs_tbl <- as_tibble(ihs$ihs) %>%
-      mutate(category_name = country)
-    all_ihs[[country]] <- ihs_tbl
+      mutate(category_name = cat_val)
+    all_ihs[[cat_val]] <- ihs_tbl
   } else {
-    warning("No valid iHS markers for country: ", country)
+    warning("No valid iHS markers for category: ", cat_val)
   }
 }
 
 if (length(all_ihs) == 0) {
-  stop("No iHS data could be computed for any country.\n", call. = FALSE)
+  stop("No iHS data could be computed for any category.\n", call. = FALSE)
 }
 
+# Keeping original file name for compatibility
 ihs_all_countries <- bind_rows(all_ihs)
 ihs_file <- file.path(data_dir, "iHS_all_countries.tsv")
 write_tsv(ihs_all_countries, ihs_file)
@@ -148,11 +196,11 @@ genes <- read_tsv(genome_file, show_col_types = FALSE)
 genes_clean <- genes %>%
   mutate(CHR = as.numeric(str_extract(chr, "\\d{2}"))) %>%
   rename(
-    START    = pos_start,
-    END      = pos_end,
-    GENE_ID  = gene_id,
-    GENE_NAME= gene_name,
-    PRODUCT  = gene_product
+    START     = pos_start,
+    END       = pos_end,
+    GENE_ID   = gene_id,
+    GENE_NAME = gene_name,
+    PRODUCT   = gene_product
   ) %>%
   filter(!is.na(CHR)) %>%
   select(CHR, START, END, GENE_ID, GENE_NAME, PRODUCT)
@@ -173,7 +221,7 @@ write_tsv(ihs_annotated, annot_file)
 message("Wrote extreme iHS annotation: ", annot_file)
 
 # ─────────────────────────────────────────────────────────────
-# 3. Per-country Manhattan plots
+# 3. Per-category Manhattan plots
 # ─────────────────────────────────────────────────────────────
 
 ihs_all <- ihs_all %>%
@@ -250,7 +298,7 @@ ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_country.png"),
        p_logp, width = 16, height = 10)
 
 # ─────────────────────────────────────────────────────────────
-# 4. Focus population (e.g. Ethiopia) – detailed plots + TSVs
+# 4. Focus population – detailed plots + TSVs
 # ─────────────────────────────────────────────────────────────
 
 ihs_focus <- ihs_all_countries %>%
@@ -435,7 +483,7 @@ if (nrow(ihs_focus) > 0) {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 5. By-year iHS for focus population
+# 5. By-year iHS (unchanged; still uses scanned_haplotypes_<year>.tsv)
 # ─────────────────────────────────────────────────────────────
 
 all_ihs_years <- list()
@@ -578,4 +626,3 @@ if (length(all_ihs_years) > 0) {
 }
 
 message("Done with iHS plotting/selection.")
-
