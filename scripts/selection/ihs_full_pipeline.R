@@ -107,7 +107,7 @@ option_list <- list(
   make_option(c("--freqbin"), type = "numeric", default = 0.05,
               help = "freqbin argument to ihh2ihs [default %default]",
               metavar = "numeric"),
-  make_option(c("--ihs-thresh"), type = "numeric", default = 2.0,
+  make_option(c("--ihs-thresh"), type = "numeric", default = 2.5,
               help = "Absolute iHS threshold for labeling (|IHS| > this) [default %default]",
               metavar = "numeric"),
   make_option(c("--logp-thresh"), type = "numeric", default = 5.0,
