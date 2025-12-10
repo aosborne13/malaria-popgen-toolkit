@@ -349,7 +349,7 @@ paint_plot <- ggplot() +
   # DR-overlapping segments (bright red on top)
   geom_segment(data = dr_paint_segs,
                aes(x = x, xend = x, y = y0, yend = y1),
-               linewidth = 5.2, lineend = "butt", color = "red", alpha = 0.95) +
+               linewidth = 5.4, lineend = "butt", color = "red", alpha = 0.95) +
   scale_color_manual(values = region_cols, guide = "none") +
   facet_wrap(~ factor(category, levels = category_order),
              ncol = 1, strip.position = "left") +
