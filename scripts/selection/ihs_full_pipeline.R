@@ -449,15 +449,19 @@ for (category in categories) {
     hap_chr_s <- hap_c[, idx_chr, drop = FALSE]
     map_chr   <- map[idx_chr, , drop = FALSE]
 
-    # sanity check: number of markers must match
+    # sanity check: genotype columns = markers in map
     if (ncol(hap_chr_s) != nrow(map_chr)) {
       stop("For category ", category_str, " chr ", uchr,
            ": number of markers in hap (", ncol(hap_chr_s),
            ") != markers in map (", nrow(map_chr), ").", call. = FALSE)
     }
 
+    # add explicit unique hap IDs as first column
+    hap_ids <- paste0("h", seq_len(nrow(hap_chr_s)))
+    hap_chr_out <- cbind(hap_ids, hap_chr_s)
+
     hap_file <- file.path(workdir, sprintf("hap_chr%d_%s", uchr, category_str))
-    write.table(hap_chr_s, hap_file,
+    write.table(hap_chr_out, hap_file,
                 sep = "\t", col.names = FALSE, quote = FALSE, row.names = FALSE)
 
     map_file_chr <- file.path(workdir,
