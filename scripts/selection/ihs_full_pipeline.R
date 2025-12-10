@@ -47,8 +47,7 @@ option_list <- list(
 
   # Primary grouping (e.g. country) and optional subgroup (e.g. year)
   make_option(c("-c", "--category"), type = "character", default = NULL,
-              help = "Primary category value(s) in label_category column "
-                     "(comma-separated) or 'ALL' for all.",
+              help = "Primary category value(s) in label_category column (comma-separated) or 'ALL' for all.",
               metavar = "character"),
   make_option(c("--label_category"), type = "character", default = "country",
               help = "Column name in metadata for primary category (e.g. country) [default %default]",
