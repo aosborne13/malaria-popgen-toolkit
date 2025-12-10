@@ -404,3 +404,4 @@ ggsave(file.path(outdir, "ibd_chromosome_painting.png"),
 message("Done plotting IBD.")
 
 
+
