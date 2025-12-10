@@ -23,10 +23,10 @@ suppressPackageStartupMessages({
 
 option_list <- list(
   make_option(c("-d", "--data-dir"), type = "character", default = ".",
-              help = "Directory containing scanned_haplotypes_*.tsv and where outputs will be written [default %default]",
+              help = "Directory with scanned_haplotypes_*.tsv and where outputs will be written [default %default]",
               metavar = "character"),
   make_option(c("--country-list"), type = "character", default = NULL,
-              help = "Text file with one country name per line (for scanned_haplotypes_<country>.tsv).",
+              help = "Text file with one country name per line (for scanned_haplotypes_<country>.tsv)",
               metavar = "character"),
   make_option(c("--genome-file"), type = "character", default = NULL,
               help = "Pf genome product annotation TSV (e.g. pf_genome_product_v3.tsv) [required]",
@@ -44,7 +44,7 @@ option_list <- list(
               help = "freqbin argument to ihh2ihs [default %default]",
               metavar = "numeric"),
   make_option(c("--ihs-thresh"), type = "numeric", default = 2.0,
-              help = "Absolute iHS threshold for labeling (|iHS| > this) [default %default]",
+              help = "Absolute iHS threshold for labeling (|IHS| > this) [default %default]",
               metavar = "numeric"),
   make_option(c("--logp-thresh"), type = "numeric", default = 5.0,
               help = "-log10(p) threshold for labeling [default %default]",
@@ -53,36 +53,35 @@ option_list <- list(
 
 opt <- parse_args(OptionParser(option_list = option_list))
 
-data_dir      <- opt$`data-dir`
-country_list  <- opt$`country-list`
-genome_file   <- opt$`genome-file`
-focus_pop     <- opt$`focus-pop`
-years_str     <- opt$years
-min_maf       <- opt$`min-maf`
-freqbin       <- opt$freqbin
-ihs_thresh    <- opt$`ihs-thresh`
-logp_thresh   <- opt$`logp-thresh`
+data_dir    <- opt$`data-dir`
+country_lst <- opt$`country-list`
+genome_file <- opt$`genome-file`
+focus_pop   <- opt$`focus-pop`
+years_str   <- opt$years
+min_maf     <- opt$`min-maf`
+freqbin     <- opt$freqbin
+ihs_thresh  <- opt$`ihs-thresh`
+logp_thresh <- opt$`logp-thresh`
 
 if (is.null(genome_file) || !file.exists(genome_file)) {
   stop("ERROR: --genome-file must be provided and must exist.\n", call. = FALSE)
 }
-if (is.null(country_list) || !file.exists(country_list)) {
+if (is.null(country_lst) || !file.exists(country_lst)) {
   stop("ERROR: --country-list must be provided and must exist.\n", call. = FALSE)
 }
 
 years <- strsplit(years_str, ",")[[1]] |> trimws()
-
-message("Data dir:     ", data_dir)
-message("Genome file:  ", genome_file)
-message("Country list: ", country_list)
-message("Focus pop:    ", focus_pop)
-message("Years:        ", paste(years, collapse = ", "))
-
 dir.create(file.path(data_dir, "plots"), showWarnings = FALSE, recursive = TRUE)
 plot_dir <- file.path(data_dir, "plots")
 
+message("Data dir:     ", data_dir)
+message("Genome file:  ", genome_file)
+message("Country list: ", country_lst)
+message("Focus pop:    ", focus_pop)
+message("Years:        ", paste(years, collapse = ", "))
+
 # ─────────────────────────────────────────────────────────────
-# Helper: drug-resistance gene regions (hard-coded)
+# DR gene regions
 # ─────────────────────────────────────────────────────────────
 
 drug_genes <- tibble::tribble(
@@ -99,14 +98,14 @@ drug_genes <- tibble::tribble(
 )
 
 # ─────────────────────────────────────────────────────────────
-# 1. Compute iHS per country (from scanned_haplotypes_<country>.tsv)
+# 1. Compute iHS per country
 # ─────────────────────────────────────────────────────────────
 
-countries <- readLines(country_list) |> trimws()
+countries <- readLines(country_lst) |> trimws()
 countries <- countries[countries != ""]
 
 if (length(countries) == 0) {
-  stop("Country list is empty.", call. = FALSE)
+  stop("Country list is empty.\n", call. = FALSE)
 }
 
 all_ihs <- list()
@@ -132,7 +131,7 @@ for (country in countries) {
 }
 
 if (length(all_ihs) == 0) {
-  stop("No iHS data could be computed for any country.", call. = FALSE)
+  stop("No iHS data could be computed for any country.\n", call. = FALSE)
 }
 
 ihs_all_countries <- bind_rows(all_ihs)
@@ -141,7 +140,7 @@ write_tsv(ihs_all_countries, ihs_file)
 message("Wrote combined iHS file: ", ihs_file)
 
 # ─────────────────────────────────────────────────────────────
-# 2. Annotate extreme SNPs across all countries
+# 2. Global annotation of extreme |iHS|
 # ─────────────────────────────────────────────────────────────
 
 genes <- read_tsv(genome_file, show_col_types = FALSE)
@@ -161,7 +160,6 @@ genes_clean <- genes %>%
 ihs_all <- ihs_all_countries %>%
   filter(CHR %in% 1:14)
 
-# Filter for extreme |iHS|
 ihs_extreme <- ihs_all %>%
   filter(abs(IHS) > ihs_thresh)
 
@@ -175,16 +173,18 @@ write_tsv(ihs_annotated, annot_file)
 message("Wrote extreme iHS annotation: ", annot_file)
 
 # ─────────────────────────────────────────────────────────────
-# 3. Per-country Manhattan plots (all countries)
+# 3. Per-country Manhattan plots
 # ─────────────────────────────────────────────────────────────
 
 ihs_all <- ihs_all %>%
   rowwise() %>%
-  mutate(drug_gene = drug_genes$gene[which(
-    CHR == drug_genes$CHR &
-      POSITION >= drug_genes$START &
-      POSITION <= drug_genes$END
-  )[1]]) %>%
+  mutate(
+    drug_gene = drug_genes$gene[which(
+      CHR == drug_genes$CHR &
+        POSITION >= drug_genes$START &
+        POSITION <= drug_genes$END
+    )[1]]
+  ) %>%
   ungroup() %>%
   mutate(
     drug_gene   = ifelse(is.na(drug_gene), "None", drug_gene),
@@ -208,7 +208,8 @@ axis_df <- ihs_all %>%
 # iHS
 p_ihs <- ggplot(ihs_all, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
   geom_point(alpha = 0.4, size = 0.7) +
-  geom_point(data = ihs_all %>% filter(is_drug_snp), color = "red", size = 1) +
+  geom_point(data = ihs_all %>% filter(is_drug_snp),
+             color = "red", size = 1) +
   facet_wrap(~category_name, ncol = 4) +
   scale_x_continuous(label = axis_df$CHR, breaks = axis_df$center / 1e6) +
   scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
@@ -231,7 +232,8 @@ ihs_all <- ihs_all %>%
 
 p_logp <- ggplot(ihs_all, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
   geom_point(alpha = 0.4, size = 0.7) +
-  geom_point(data = ihs_all %>% filter(is_drug_snp), color = "red", size = 1) +
+  geom_point(data = ihs_all %>% filter(is_drug_snp),
+             color = "red", size = 1) +
   facet_wrap(~category_name, ncol = 4) +
   scale_x_continuous(label = axis_df$CHR, breaks = axis_df$center / 1e6) +
   scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
@@ -248,21 +250,23 @@ ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_country.png"),
        p_logp, width = 16, height = 10)
 
 # ─────────────────────────────────────────────────────────────
-# 4. Focus population (e.g. Ethiopia) – detailed plots & tables
+# 4. Focus population (e.g. Ethiopia) – detailed plots + TSVs
 # ─────────────────────────────────────────────────────────────
 
-ihs_eth <- ihs_all_countries %>%
+ihs_focus <- ihs_all_countries %>%
   filter(category_name == focus_pop, CHR %in% 1:14)
 
-if (nrow(ihs_eth) > 0) {
+if (nrow(ihs_focus) > 0) {
 
-  ihs_eth <- ihs_eth %>%
+  ihs_focus <- ihs_focus %>%
     rowwise() %>%
-    mutate(drug_gene = drug_genes$gene[which(
-      CHR == drug_genes$CHR &
-        POSITION >= drug_genes$START &
-        POSITION <= drug_genes$END
-    )[1]]) %>%
+    mutate(
+      drug_gene = drug_genes$gene[which(
+        CHR == drug_genes$CHR &
+          POSITION >= drug_genes$START &
+          POSITION <= drug_genes$END
+      )[1]]
+    ) %>%
     ungroup() %>%
     mutate(
       drug_gene   = ifelse(is.na(drug_gene), "None", drug_gene),
@@ -270,28 +274,32 @@ if (nrow(ihs_eth) > 0) {
     ) %>%
     arrange(CHR, POSITION)
 
-  chr_offsets_eth <- ihs_eth %>%
+  chr_offsets_f <- ihs_focus %>%
     group_by(CHR) %>%
     summarise(chr_len = max(POSITION), .groups = "drop") %>%
     mutate(chr_offset = lag(cumsum(chr_len), default = 0))
 
-  ihs_eth <- ihs_eth %>%
-    left_join(chr_offsets_eth, by = "CHR") %>%
+  ihs_focus <- ihs_focus %>%
+    left_join(chr_offsets_f, by = "CHR") %>%
     mutate(POS_cum = POSITION + chr_offset)
 
-  axis_df_eth <- ihs_eth %>%
+  axis_df_f <- ihs_focus %>%
     group_by(CHR) %>%
     summarize(center = (min(POS_cum) + max(POS_cum)) / 2, .groups = "drop")
 
   # iHS
-  p_ihs_eth <- ggplot(ihs_eth, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
+  p_ihs_f <- ggplot(ihs_focus,
+                    aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1) +
-    geom_point(data = ihs_eth %>% filter(is_drug_snp), color = "red", size = 1.5) +
-    scale_x_continuous(label = axis_df_eth$CHR, breaks = axis_df_eth$center / 1e6) +
+    geom_point(data = ihs_focus %>% filter(is_drug_snp),
+               color = "red", size = 1.5) +
+    scale_x_continuous(label = axis_df_f$CHR,
+                       breaks = axis_df_f$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
                linetype = "dashed", color = "black") +
-    labs(x = "Chromosome", y = "iHS", title = paste("iHS", focus_pop)) +
+    labs(x = "Chromosome", y = "iHS",
+         title = paste("iHS", focus_pop)) +
     theme_bw() +
     theme(
       legend.position = "none",
@@ -299,19 +307,24 @@ if (nrow(ihs_eth) > 0) {
       plot.title      = element_text(size = 14, face = "bold")
     )
 
-  ggsave(file.path(plot_dir, paste0("manhattan_ihs_", focus_pop, ".png")),
-         p_ihs_eth, width = 12, height = 6)
+  ggsave(file.path(plot_dir,
+                   paste0("manhattan_ihs_", focus_pop, ".png")),
+         p_ihs_f, width = 12, height = 6)
 
   # -log10(p)
-  ihs_eth <- ihs_eth %>%
+  ihs_focus <- ihs_focus %>%
     mutate(logp = -log10(10^(-LOGPVALUE)))
 
-  p_logp_eth <- ggplot(ihs_eth, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
+  p_logp_f <- ggplot(ihs_focus,
+                     aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1) +
-    geom_point(data = ihs_eth %>% filter(is_drug_snp), color = "red", size = 1.5) +
-    scale_x_continuous(label = axis_df_eth$CHR, breaks = axis_df_eth$center / 1e6) +
+    geom_point(data = ihs_focus %>% filter(is_drug_snp),
+               color = "red", size = 1.5) +
+    scale_x_continuous(label = axis_df_f$CHR,
+                       breaks = axis_df_f$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
-    geom_hline(yintercept = logp_thresh, linetype = "dashed", color = "black") +
+    geom_hline(yintercept = logp_thresh,
+               linetype = "dashed", color = "black") +
     labs(x = "Chromosome", y = "-log10(p-value)",
          title = paste("-log10(p):", focus_pop)) +
     theme_bw() +
@@ -323,50 +336,50 @@ if (nrow(ihs_eth) > 0) {
 
   ggsave(file.path(plot_dir,
                    paste0("manhattan_logp_ihs_", focus_pop, ".png")),
-         p_logp_eth, width = 12, height = 6)
+         p_logp_f, width = 12, height = 6)
 
-  # Annotated, gene-labeled plots + TSVs
-  ihs_eth <- ihs_eth %>%
+  # Annotated / labeled versions
+  ihs_focus_ord <- ihs_focus %>%
     arrange(CHR, POSITION)
 
-  genes_clean <- genes_clean  # from above
-
-  ihs_eth_full <- ihs_eth %>%
-    mutate(logp = -log10(10^(-LOGPVALUE))) %>%
+  ihs_focus_full <- ihs_focus_ord %>%
     inner_join(genes_clean, by = "CHR") %>%
+    mutate(logp = -log10(10^(-LOGPVALUE))) %>%
     filter(POSITION >= START, POSITION <= END)
 
-  label_df_logp <- ihs_eth_full %>%
+  label_logp <- ihs_focus_full %>%
     filter(logp > logp_thresh) %>%
     distinct(POSITION, CHR, logp, GENE_ID, GENE_NAME, PRODUCT)
 
-  label_df_ihs <- ihs_eth_full %>%
+  label_ihs <- ihs_focus_full %>%
     filter(abs(IHS) > ihs_thresh) %>%
     distinct(POSITION, CHR, IHS, GENE_ID, GENE_NAME, PRODUCT)
 
-  # Map to POS_cum
-  ihs_eth_pos <- ihs_eth %>%
+  ihs_focus_pos <- ihs_focus_ord %>%
     select(POSITION, CHR, POS_cum)
 
-  label_df_logp <- label_df_logp %>%
-    left_join(ihs_eth_pos, by = c("POSITION", "CHR"))
+  label_logp <- label_logp %>%
+    left_join(ihs_focus_pos, by = c("POSITION", "CHR"))
 
-  label_df_ihs <- label_df_ihs %>%
-    left_join(ihs_eth_pos, by = c("POSITION", "CHR"))
+  label_ihs <- label_ihs %>%
+    left_join(ihs_focus_pos, by = c("POSITION", "CHR"))
 
-  # Plot -log10(p) with labels
-  p_logp_lab <- ggplot(ihs_eth, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
+  p_logp_lab <- ggplot(ihs_focus_ord,
+                       aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1) +
-    geom_hline(yintercept = logp_thresh, linetype = "dashed", color = "black") +
-    geom_point(data = ihs_eth %>% filter(POSITION %in% label_df_logp$POSITION),
+    geom_hline(yintercept = logp_thresh,
+               linetype = "dashed", color = "black") +
+    geom_point(data = ihs_focus_ord %>%
+                 filter(POSITION %in% label_logp$POSITION),
                color = "red", size = 1.5) +
     geom_text_repel(
-      data = label_df_logp,
+      data = label_logp,
       aes(x = POS_cum / 1e6, y = logp, label = GENE_ID),
-      size = 2.7, max.overlaps = 30, segment.size = 0.2,
-      box.padding = 0.4, min.segment.length = 0
+      size = 2.7, max.overlaps = 30,
+      segment.size = 0.2, box.padding = 0.4
     ) +
-    scale_x_continuous(label = axis_df_eth$CHR, breaks = axis_df_eth$center / 1e6) +
+    scale_x_continuous(label = axis_df_f$CHR,
+                       breaks = axis_df_f$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     labs(x = "Chromosome", y = "-log10(p-value)",
          title = paste("-log10(p):", focus_pop)) +
@@ -381,20 +394,22 @@ if (nrow(ihs_eth) > 0) {
                    paste0("manhattan_logp_ihs_", focus_pop, "_annotated.png")),
          p_logp_lab, width = 12, height = 6)
 
-  # Plot iHS with labels
-  p_ihs_lab <- ggplot(ihs_eth, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
+  p_ihs_lab <- ggplot(ihs_focus_ord,
+                      aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
     geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
                linetype = "dashed", color = "black") +
-    geom_point(data = ihs_eth %>% filter(POSITION %in% label_df_ihs$POSITION),
+    geom_point(data = ihs_focus_ord %>%
+                 filter(POSITION %in% label_ihs$POSITION),
                color = "red", size = 1.5) +
     geom_text_repel(
-      data = label_df_ihs,
+      data = label_ihs,
       aes(x = POS_cum / 1e6, y = IHS, label = GENE_ID),
-      size = 2.7, max.overlaps = 25, segment.size = 0.2,
-      box.padding = 0.5, min.segment.length = 0
+      size = 2.7, max.overlaps = 25,
+      segment.size = 0.2, box.padding = 0.5
     ) +
-    scale_x_continuous(label = axis_df_eth$CHR, breaks = axis_df_eth$center / 1e6) +
+    scale_x_continuous(label = axis_df_f$CHR,
+                       breaks = axis_df_f$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     labs(x = "Chromosome", y = "iHS",
          title = paste("iHS:", focus_pop)) +
@@ -409,11 +424,10 @@ if (nrow(ihs_eth) > 0) {
                    paste0("manhattan_ihs_", focus_pop, "_annotated.png")),
          p_ihs_lab, width = 12, height = 6)
 
-  # Save annotated SNP tables
-  write_tsv(label_df_logp,
+  write_tsv(label_logp,
             file.path(plot_dir,
                       paste0("iHS_", focus_pop, "_logp_high_snps.tsv")))
-  write_tsv(label_df_ihs,
+  write_tsv(label_ihs,
             file.path(plot_dir,
                       paste0("iHS_", focus_pop, "_extreme_ihs_snps.tsv")))
 } else {
@@ -421,7 +435,7 @@ if (nrow(ihs_eth) > 0) {
 }
 
 # ─────────────────────────────────────────────────────────────
-# 5. Focus-pop by year (scanned_haplotypes_<year>.tsv)
+# 5. By-year iHS for focus population
 # ─────────────────────────────────────────────────────────────
 
 all_ihs_years <- list()
@@ -433,7 +447,7 @@ for (year in years) {
     next
   }
 
-  cat("Computing iHS by year:", year, "\n")
+  cat("Computing iHS for year:", year, "\n")
   scan_data <- read.table(scan_file, header = TRUE)
   ihs_result <- ihh2ihs(scan_data, min_maf = min_maf, freqbin = freqbin)
 
@@ -462,7 +476,6 @@ if (length(all_ihs_years) > 0) {
     left_join(chr_offsets_y, by = "CHR") %>%
     mutate(POS_cum = POSITION + chr_offset)
 
-  # annotate with gene info + drug regions
   ihs_all_years <- ihs_all_years %>%
     left_join(genes_clean, by = c("CHR")) %>%
     mutate(overlap_gene = POSITION >= START & POSITION <= END) %>%
@@ -485,7 +498,7 @@ if (length(all_ihs_years) > 0) {
     group_by(CHR) %>%
     summarise(center = (min(POS_cum) + max(POS_cum)) / 2, .groups = "drop")
 
-  # iHS
+  # iHS by year
   p_ihs_years <- ggplot(ihs_all_years,
                         aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 0.9) +
@@ -515,7 +528,7 @@ if (length(all_ihs_years) > 0) {
   ggsave(file.path(plot_dir, "manhattan_iHS_by_year.png"),
          p_ihs_years, width = 12, height = 10)
 
-  # -log10(p)
+  # -log10(p) by year
   p_logp_years <- ggplot(ihs_all_years,
                          aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 0.9) +
@@ -545,7 +558,7 @@ if (length(all_ihs_years) > 0) {
   ggsave(file.path(plot_dir, "manhattan_logp_by_year.png"),
          p_logp_years, width = 12, height = 10)
 
-  # Matched label tables
+  # Matched tables
   label_df_logp_y <- ihs_all_years %>%
     filter(!is.na(label_logp)) %>%
     arrange(desc(logp)) %>%
@@ -564,4 +577,5 @@ if (length(all_ihs_years) > 0) {
   warning("No by-year iHS results computed (check scanned_haplotypes_<year>.tsv files).")
 }
 
-message("Done.")
+message("Done with iHS plotting/selection.")
+
