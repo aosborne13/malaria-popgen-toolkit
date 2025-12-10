@@ -22,10 +22,7 @@ option_list <- list(
               help = "Reference population label (e.g. Ethiopia) [required]",
               metavar = "character"),
   make_option(c("--targets"), type = "character", default = NULL,
-              help = "Comma-separated list of target populations (e.g. Cameroon,DRC,Ghana). If omitted, use --targets_file or auto-detect.",
-              metavar = "character"),
-  make_option(c("--targets_file"), type = "character", default = NULL,
-              help = "Text file with one population label per line (e.g. country_list.txt). Ref pop will be removed.",
+              help = "Comma-separated list of target populations (e.g. Cameroon,DRC,Ghana). If omitted, all populations except ref_pop are used.",
               metavar = "character"),
   make_option(c("--genome-file"), type = "character", default = NULL,
               help = "Pf genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
@@ -47,7 +44,6 @@ workdir      <- opt$workdir
 scan_prefix  <- opt$scan_prefix
 ref_pop      <- opt$ref_pop
 targets_arg  <- opt$targets
-targets_file <- opt$targets_file
 genome_file  <- opt$`genome-file`
 xpehh_thresh <- opt$`xpehh-thresh`
 logp_thresh  <- opt$`logp-thresh`
@@ -72,26 +68,43 @@ message("Genome file:  ", genome_file)
 message("Out prefix:   ", out_prefix)
 
 # ─────────────────────────────────────────────────────────────
-# Determine target populations
+# Determine target populations (auto-detect like iHS)
 # ─────────────────────────────────────────────────────────────
 
-if (!is.null(targets_arg) && targets_arg != "") {
-  targets <- strsplit(targets_arg, ",")[[1]] |> trimws()
-} else if (!is.null(targets_file) && file.exists(targets_file)) {
-  targets <- readLines(targets_file, warn = FALSE) |> trimws()
-  targets <- targets[targets != ""]
-} else {
-  # auto-detect from scanned files in workdir
-  files <- list.files(workdir, pattern = paste0("^", scan_prefix), full.names = FALSE)
-  pops  <- gsub(paste0("^", scan_prefix), "", files)
-  pops  <- gsub("\\.tsv$", "", pops)
-  targets <- pops
+scan_files <- list.files(workdir, pattern = paste0("^", scan_prefix), full.names = FALSE)
+if (length(scan_files) == 0) {
+  stop("ERROR: No files matching '", scan_prefix, "*' found in workdir.\n", call. = FALSE)
 }
 
-targets <- setdiff(unique(targets), ref_pop)
+all_pops <- scan_files |>
+  gsub(paste0("^", scan_prefix), "", x = _) |>
+  gsub("\\.tsv$", "", x = _) |>
+  unique()
+
+if (!(ref_pop %in% all_pops)) {
+  stop("ERROR: ref_pop '", ref_pop, "' has no file ", scan_prefix, ref_pop, ".tsv in workdir.\n",
+       "Available pops: ", paste(all_pops, collapse = ", "), "\n",
+       call. = FALSE)
+}
+
+if (!is.null(targets_arg) && targets_arg != "") {
+  requested <- strsplit(targets_arg, ",")[[1]] |> trimws()
+  missing   <- setdiff(requested, all_pops)
+  if (length(missing) > 0) {
+    warning("Requested targets not found in scanned files: ",
+            paste(missing, collapse = ", "), "\n",
+            "Available pops: ", paste(all_pops, collapse = ", "))
+  }
+  targets <- intersect(requested, all_pops)
+} else {
+  # default: all pops except ref
+  targets <- setdiff(all_pops, ref_pop)
+}
 
 if (length(targets) == 0) {
-  stop("ERROR: No target populations found after removing ref_pop.\n", call. = FALSE)
+  stop("ERROR: No target populations after filtering (ref_pop removed).\n",
+       "Available pops: ", paste(all_pops, collapse = ", "), "\n",
+       call. = FALSE)
 }
 
 message("Target populations: ", paste(targets, collapse = ", "))
@@ -100,10 +113,6 @@ message("Target populations: ", paste(targets, collapse = ", "))
 # Load reference scan_hh
 # ─────────────────────────────────────────────────────────────
 ref_file <- file.path(workdir, sprintf("%s%s.tsv", scan_prefix, ref_pop))
-if (!file.exists(ref_file)) {
-  stop("ERROR: reference scan_hh file not found: ", ref_file, "\n", call. = FALSE)
-}
-
 message("Loading reference scan_hh: ", ref_file)
 scan_ref <- read.table(ref_file, header = TRUE)
 
@@ -281,7 +290,7 @@ for (cmp in unique(xpehh_all$comparison)) {
       is_drug_snp = drug_gene != "None"
     )
 
-  # nice label for title
+  # pretty label for title
   title_str <- gsub("_", " ", cmp)
 
   # XP-EHH Manhattan
