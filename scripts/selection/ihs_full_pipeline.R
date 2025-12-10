@@ -520,6 +520,14 @@ if (length(all_ihs) == 0) {
 # Combine iHS for all categories, annotate extreme sites
 # ─────────────────────────────────────────────────────────────
 ihs_all_countries <- bind_rows(all_ihs)
+
+# Make sure CHR and POSITION are numeric to match genes_clean
+ihs_all_countries <- ihs_all_countries %>%
+  mutate(
+    CHR      = as.numeric(CHR),
+    POSITION = as.numeric(POSITION)
+  )
+
 ihs_file <- file.path(workdir, "iHS_all_countries.tsv")
 write_tsv(ihs_all_countries, ihs_file)
 message("Wrote combined iHS file: ", ihs_file)
