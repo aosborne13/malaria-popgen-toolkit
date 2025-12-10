@@ -72,7 +72,6 @@ if (is.null(gene_file) || !file.exists(gene_file)) {
   stop("ERROR: --gene_product not provided or file does not exist.", call. = FALSE)
 }
 
-setwd(workdir)
 window_kb <- window_size / 1000
 
 if (is.null(opt$outdir)) {
@@ -278,7 +277,7 @@ dr_pattern_regex <- regex(paste(res_gene_patterns, collapse = "|"),
                           ignore_case = TRUE)
 
 dr_segments <- annot_ibd %>%
-  # expect: chr, start, end, category, gene_id, gene_name, gene_product (or similar)
+  # make names lower case for easier handling
   rename_with(~tolower(.x)) %>%
   # standardise names after lowering
   rename(
@@ -295,14 +294,14 @@ dr_segments <- annot_ibd %>%
   ) %>%
   filter(!is.na(category), !is.na(chr), !is.na(win_start), !is.na(win_end)) %>%
   mutate(
-    # try to detect DR genes via product OR ID/NAME
+    # detect DR genes via product OR ID/NAME
     text_for_match = paste(gene_id, gene_name, gene_prod),
     is_dr = str_detect(text_for_match, dr_pattern_regex)
   ) %>%
   filter(is_dr) %>%
   mutate(
-    seg_start = pmax(win_start, ifelse(is.na(win_start), win_start, win_start)),
-    seg_end   = pmin(win_end,   ifelse(is.na(win_end),   win_end,   win_end))
+    seg_start = win_start,
+    seg_end   = win_end
   ) %>%
   transmute(category, chr, start = seg_start, end = seg_end) %>%
   distinct()
@@ -382,3 +381,4 @@ ggsave(file.path(outdir, "ibd_chromosome_painting.png"),
        paint_plot, width = 8, height = 13, dpi = 300, bg = "white")
 
 message("Finished plotting IBD boxplot, genome-wide fraction, and chromosome painting (with DR highlights).")
+
