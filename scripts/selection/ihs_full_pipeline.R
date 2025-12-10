@@ -265,7 +265,6 @@ genes_clean <- genes %>%
 # ─────────────────────────────────────────────────────────────
 # Main loop: for each category
 # ─────────────────────────────────────────────────────────────
-
 all_ihs <- list()
 
 for (category in categories) {
@@ -411,11 +410,7 @@ for (category in categories) {
     select(info, chr, pos, ref, alt) %>%
     distinct()
 
-  map_file <- file.path(workdir, sprintf("snp.info.inp.%s", category_str))
-  write.table(map, map_file,
-              quote = FALSE, row.names = FALSE, col.names = FALSE)
-
-  # Make haplotypes
+  # Make haplotypes (whole-genome matrix; we’ll subset per chr later)
   hap <- t(maj4)
   hap_c <- hap
   hap_c[hap == 1]   <- 2
@@ -431,7 +426,7 @@ for (category in categories) {
   hap_c[i] <- lapply(hap_c[i], function(x) suppressWarnings(as.numeric(x)))
 
   # Create haplotypes per chromosome and run scan_hh
-  u_chr <- unique(map$chr)
+  u_chr <- sort(unique(map$chr))
   results_hh <- NULL
 
   log_file <- file.path(workdir, paste0(category_str, "_rehh.log"))
@@ -441,15 +436,38 @@ for (category in categories) {
 
   for (uchr in u_chr) {
     cat("Chr ", uchr, " ...\n", sep = "")
-    hap_chr_s <- hap_c[, which(map$chr == uchr), drop = FALSE]
+
+    # indices of markers for this chromosome in the map
+    idx_chr <- which(map$chr == uchr)
+
+    if (length(idx_chr) == 0) {
+      cat("  No markers for chr ", uchr, " after filtering; skipping.\n", sep = "")
+      next
+    }
+
+    # subset haplotypes and map for this chromosome
+    hap_chr_s <- hap_c[, idx_chr, drop = FALSE]
+    map_chr   <- map[idx_chr, , drop = FALSE]
+
+    # sanity check: number of markers must match
+    if (ncol(hap_chr_s) != nrow(map_chr)) {
+      stop("For category ", category_str, " chr ", uchr,
+           ": number of markers in hap (", ncol(hap_chr_s),
+           ") != markers in map (", nrow(map_chr), ").", call. = FALSE)
+    }
 
     hap_file <- file.path(workdir, sprintf("hap_chr%d_%s", uchr, category_str))
     write.table(hap_chr_s, hap_file,
                 sep = "\t", col.names = FALSE, quote = FALSE, row.names = FALSE)
 
+    map_file_chr <- file.path(workdir,
+                              sprintf("snp.info.chr%d.%s", uchr, category_str))
+    write.table(map_chr, map_file_chr,
+                quote = FALSE, row.names = FALSE, col.names = FALSE)
+
     hap_chr_pop <- data2haplohh(
       hap_file          = hap_file,
-      map_file          = map_file,
+      map_file          = map_file_chr,
       recode.allele     = FALSE,
       chr.name          = uchr,
       min_perc_geno.hap = th_min_perc_sam,
@@ -779,3 +797,4 @@ if (nrow(ihs_focus) > 0) {
 }
 
 message("\nDone with iHS scanning + plotting.")
+
