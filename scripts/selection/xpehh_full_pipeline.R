@@ -27,7 +27,7 @@ option_list <- list(
   make_option(c("--genome-file"), type = "character", default = NULL,
               help = "Pf genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
               metavar = "character"),
-  make_option(c("--xpehh-thresh"), type = "numeric", default = 2.0,
+  make_option(c("--xpehh-thresh"), type = "numeric", default = 2.5,
               help = "Absolute XP-EHH threshold for 'extreme' sites [default %default]",
               metavar = "numeric"),
   make_option(c("--logp-thresh"), type = "numeric", default = 1.3,
