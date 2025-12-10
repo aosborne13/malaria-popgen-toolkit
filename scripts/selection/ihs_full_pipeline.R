@@ -638,7 +638,7 @@ message("Wrote extreme iHS annotation: ", annot_file)
 plot_dir <- file.path(workdir, "plots")
 dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
 
-# mark DR SNPs (already defined drug_genes) and prepare genome-wide coords
+# Mark DR SNPs and build genome-wide cumulative coordinates
 ihs_all <- ihs_all %>%
   rowwise() %>%
   mutate(
@@ -677,7 +677,7 @@ p_ihs <- ggplot(ihs_all,
   geom_point(alpha = 0.4, size = 1.0) +
   geom_point(data = ihs_all %>% filter(is_drug_snp),
              color = "red", size = 2.0) +
-  facet_wrap(~category_name, ncol = 1) +   # <-- stacked vertically
+  facet_wrap(~category_name, ncol = 1) +   # stacked vertically
   scale_x_continuous(label = axis_df$CHR, breaks = axis_df$center / 1e6) +
   scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
   geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
@@ -699,7 +699,7 @@ p_logp <- ggplot(ihs_all,
   geom_point(alpha = 0.4, size = 1.0) +
   geom_point(data = ihs_all %>% filter(is_drug_snp),
              color = "red", size = 2.0) +
-  facet_wrap(~category_name, ncol = 1) +   # <-- stacked vertically
+  facet_wrap(~category_name, ncol = 1) +
   scale_x_continuous(label = axis_df$CHR, breaks = axis_df$center / 1e6) +
   scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
   geom_hline(yintercept = logp_thresh, linetype = "dashed", color = "black") +
@@ -715,7 +715,9 @@ ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_group.png"),
        p_logp, width = 10, height = 12, dpi = 300)
 
 # ─────────────────────────────────────────────────────────────
-# Per-category standalone plots + DR-only annotation
+# Per-category standalone plots + TSVs
+#   - TSVs: all high SNPs (any gene, with annotation)
+#   - Plots: only DR genes annotated (one SNP per gene)
 # ─────────────────────────────────────────────────────────────
 
 all_groups <- sort(unique(ihs_all$category_name))
@@ -731,7 +733,32 @@ for (cat_nm in all_groups) {
     group_by(CHR) %>%
     summarise(center = (min(POS_cum) + max(POS_cum)) / 2, .groups = "drop")
 
-  ## Plain iHS plot for this category
+  # ---- Annotate with gene info (for TSVs + label candidate pool)
+  ihs_cat_annot <- ihs_cat %>%
+    inner_join(genes_clean, by = "CHR") %>%
+    filter(POSITION >= START, POSITION <= END)
+
+  # TSV of all high -log10(p) SNPs (any gene)
+  high_logp_tbl <- ihs_cat_annot %>%
+    filter(logp > logp_thresh) %>%
+    select(category_name, CHR, POSITION, IHS, logp,
+           GENE_ID, GENE_NAME, PRODUCT,
+           drug_gene, is_drug_snp)
+
+  high_ihs_tbl <- ihs_cat_annot %>%
+    filter(abs(IHS) > ihs_thresh) %>%
+    select(category_name, CHR, POSITION, IHS, logp,
+           GENE_ID, GENE_NAME, PRODUCT,
+           drug_gene, is_drug_snp)
+
+  write_tsv(high_logp_tbl,
+            file.path(plot_dir,
+                      sprintf("iHS_%s_logp_high_snps.tsv", cat_nm)))
+  write_tsv(high_ihs_tbl,
+            file.path(plot_dir,
+                      sprintf("iHS_%s_extreme_ihs_snps.tsv", cat_nm)))
+
+  # ---- Plain iHS plot for this category
   p_ihs_cat <- ggplot(ihs_cat,
                       aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
@@ -755,7 +782,7 @@ for (cat_nm in all_groups) {
                    sprintf("manhattan_ihs_%s.png", cat_nm)),
          p_ihs_cat, width = 10, height = 5, dpi = 300)
 
-  ## Plain -log10(p) plot for this category
+  # ---- Plain -log10(p) plot for this category
   p_logp_cat <- ggplot(ihs_cat,
                        aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
@@ -779,29 +806,44 @@ for (cat_nm in all_groups) {
                    sprintf("manhattan_logp_ihs_%s.png", cat_nm)),
          p_logp_cat, width = 10, height = 5, dpi = 300)
 
-  ## DR-only labels for this category (use easy names like CRT/MDR1)
-  label_logp <- ihs_cat %>%
-    filter(logp > logp_thresh, is_drug_snp) %>%
+  # ---- DR-only labels: pick one peak SNP per drug gene to keep plots quiet
+
+  # candidate pool: DR SNPs with high logp / |IHS|
+  label_logp_raw <- ihs_cat_annot %>%
+    filter(is_drug_snp, logp > logp_thresh)
+
+  label_ihs_raw <- ihs_cat_annot %>%
+    filter(is_drug_snp, abs(IHS) > ihs_thresh)
+
+  # one SNP per drug_gene: max logp or max |IHS|
+  label_logp <- label_logp_raw %>%
+    group_by(drug_gene) %>%
+    slice_max(logp, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
     distinct(POSITION, CHR, logp, drug_gene, POS_cum)
 
-  label_ihs <- ihs_cat %>%
-    filter(abs(IHS) > ihs_thresh, is_drug_snp) %>%
+  label_ihs <- label_ihs_raw %>%
+    group_by(drug_gene) %>%
+    slice_max(abs(IHS), n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
     distinct(POSITION, CHR, IHS, drug_gene, POS_cum)
 
   # Annotated -log10(p) with DR labels only
   p_logp_lab <- ggplot(ihs_cat,
                        aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
-    geom_point(alpha = 0.4, size = 1.2) +
+    geom_point(alpha = 0.35, size = 1.2) +
     geom_hline(yintercept = logp_thresh,
                linetype = "dashed", color = "black") +
     geom_point(data = ihs_cat %>%
                  filter(POSITION %in% label_logp$POSITION),
-               color = "red", size = 2.2) +
+               color = "red", size = 2.4) +
     geom_text_repel(
       data = label_logp,
       aes(x = POS_cum / 1e6, y = logp, label = drug_gene),
-      size = 3.0, max.overlaps = 30,
-      segment.size = 0.2, box.padding = 0.4
+      size = 2.8, max.overlaps = 10,
+      segment.size = 0.2, box.padding = 0.3,
+      min.segment.length = 0,
+      color = "black"
     ) +
     scale_x_continuous(label = axis_df_cat$CHR,
                        breaks = axis_df_cat$center / 1e6) +
@@ -822,17 +864,19 @@ for (cat_nm in all_groups) {
   # Annotated iHS with DR labels only
   p_ihs_lab <- ggplot(ihs_cat,
                       aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
-    geom_point(alpha = 0.4, size = 1.2) +
+    geom_point(alpha = 0.35, size = 1.2) +
     geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
                linetype = "dashed", color = "black") +
     geom_point(data = ihs_cat %>%
                  filter(POSITION %in% label_ihs$POSITION),
-               color = "red", size = 2.2) +
+               color = "red", size = 2.4) +
     geom_text_repel(
       data = label_ihs,
       aes(x = POS_cum / 1e6, y = IHS, label = drug_gene),
-      size = 3.0, max.overlaps = 25,
-      segment.size = 0.2, box.padding = 0.5
+      size = 2.8, max.overlaps = 10,
+      segment.size = 0.2, box.padding = 0.3,
+      min.segment.length = 0,
+      color = "black"
     ) +
     scale_x_continuous(label = axis_df_cat$CHR,
                        breaks = axis_df_cat$center / 1e6) +
@@ -849,16 +893,9 @@ for (cat_nm in all_groups) {
   ggsave(file.path(plot_dir,
                    sprintf("manhattan_ihs_%s_annotated.png", cat_nm)),
          p_ihs_lab, width = 10, height = 5, dpi = 300)
-
-  # Save DR-only tables for this category
-  write_tsv(label_logp %>% mutate(category_name = cat_nm),
-            file.path(plot_dir,
-                      sprintf("iHS_%s_logp_high_dr_snps.tsv", cat_nm)))
-  write_tsv(label_ihs %>% mutate(category_name = cat_nm),
-            file.path(plot_dir,
-                      sprintf("iHS_%s_extreme_ihs_dr_snps.tsv", cat_nm)))
 }
 
 message("\nDone with iHS scanning + plotting.")
+
 
 
