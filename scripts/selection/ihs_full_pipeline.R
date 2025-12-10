@@ -47,14 +47,13 @@ option_list <- list(
 
   # Primary grouping (e.g. country) and optional subgroup (e.g. year)
   make_option(c("-c", "--category"), type = "character", default = NULL,
-              help = "Primary category value(s) in label_category column (comma-separated) or 'ALL' for all.",
+              help = "Primary category value(s) in label_category column, comma-separated, or 'ALL' for all.",
               metavar = "character"),
   make_option(c("--label_category"), type = "character", default = "country",
               help = "Column name in metadata for primary category (e.g. country) [default %default]",
               metavar = "character"),
   make_option(c("--subgroup_col"), type = "character", default = NULL,
-              help = "Optional subgroup column in metadata (e.g. year); if set, "
-                     "iHS is run per (category, subgroup) combo.",
+              help = "Optional subgroup column in metadata (e.g. year); if set, iHS is run per (category, subgroup) combo.",
               metavar = "character"),
 
   make_option(c("--label_id"), type = "character", default = "sample_id",
@@ -100,8 +99,7 @@ option_list <- list(
               help = "Pf genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
               metavar = "character"),
   make_option(c("--focus-pop"), type = "character", default = NULL,
-              help = "Focus population label for detailed plots "
-                     "(must match one of the resulting categories, e.g. Ethiopia_2017)",
+              help = "Focus population label for detailed plots (must match one of the resulting categories, e.g. Ethiopia_2017)",
               metavar = "character"),
   make_option(c("--min-maf-ihs"), type = "numeric", default = 0.0,
               help = "min_maf argument to ihh2ihs [default %default]",
