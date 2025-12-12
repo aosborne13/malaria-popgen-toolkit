@@ -260,13 +260,13 @@ malaria-pipeline hmmibd-matrix \
   --exclude-chr Pf3D7_API_v3,Pf3D7_MIT_v3
 ```
 Key Options:
-```--category-col```: metadata column defining your primary groups (e.g. country, region)
-```--category```: run a subset (comma-separated); leave blank (or do not use) to run all categories (e.g. all countries)
-```--subgroup-col```: optional secondary grouping within a category (e.g. year)
-```--fws-th```: *Fws* threshold required for samples to be included; Default set to 0.95 to only include "monoclonal" samples
-```--maf```: Minor allele frequency minimum reuirement, Default set to 0.01
-```--hmmibd-bin```: path/name of hmmIBD executable if not on PATH
-```--skip-hmmibd```: only write inputs, do not run hmmIBD
+- ```--category-col```: metadata column defining your primary groups (e.g. country, region)
+- ```--category```: run a subset (comma-separated); leave blank (or do not use) to run all categories (e.g. all countries)
+- ```--subgroup-col```: optional secondary grouping within a category (e.g. year)
+- ```--fws-th```: *Fws* threshold required for samples to be included; Default set to 0.95 to only include "monoclonal" samples
+- ```--maf```: Minor allele frequency minimum reuirement, Default set to 0.01
+- ```--hmmibd-bin```: path/name of hmmIBD executable if not on PATH
+- ```--skip-hmmibd```: only write inputs, do not run hmmIBD
 
 #### Outputs
 Output files will be written into the ```--outdir```
@@ -294,8 +294,8 @@ malaria-pipeline hmmibd-summary \
   --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
 ```
 Key Options:
-```--suffix```: prefix for output files (use dates in DD_MM_YYYY format, like "10_12_2025" - **USE UNDERSCORES - NO SPACES**)
-```--quantile_cutoff```: defines “high-IBD windows” for annotation (e.g. 0.90 or 0.95)
+- ```--suffix```: prefix for output files (use dates in DD_MM_YYYY format, like "10_12_2025" - **USE UNDERSCORES - NO SPACES**)
+- ```--quantile_cutoff```: defines “high-IBD windows” for annotation (e.g. 0.90 or 0.95)
 
 #### Outputs
 Output files will be written into the ```--workdir```
