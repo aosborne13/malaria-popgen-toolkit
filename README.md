@@ -225,12 +225,137 @@ The command produces:
 
 ## Trees
 
-## IBD
+## Identity-by-Descent (IBD)
+This toolkit supports an end-to-end IBD workflow using hmmIBD, starting from a binary SNP matrix, producing pairwise IBD fractions, windowed IBD summaries, gene annotation, and article-style plots.
 
-## Selection
-### selection using IBD
+#### Inputs
+Input files should include:
+1. A binary SNP matrix
+- rows = SNPs
+- columns = samples
+- values of 0 (Reference), 1 (Alternate), 0.5 (mixed-call), N (missing, NA)
 
-### iHS and XP-EHH
+2. Metadata (.tsv) - tab-deliminated and must contain a "sample_id" column, a category (e.g. country, year) column, and an "fws" column
+3. Reference genome index - the .fai file alongside the Pf3D7 reference genome
+4. Gene product annotation - the "pf_genome_product_v3.tsv" file can be downloaded from https://plasmodb.org/plasmo/app/downloads but will also be available alongside this GitHub repo installation (Work-in-Progress)
+
+Chromosome names are expected to be Pf3D7-style (e.g. Pf3D7_01_v3). By default, the toolkit removes:
+- Pf3D7_API_v3
+- Pf3D7_MIT_v3
+
+### IBD Network plots
+
+### Selection using IBD - Step 1: Run HmmIBD from a binary matrix
+Runs hmmIBD per category (e.g. per country), and optionally per subgroup within a category (e.g. Country split by year or sampling site).
+
+```
+malaria-pipeline hmmibd-matrix \
+  --matrix snps.mat.bin \
+  --metadata metadata.tsv \
+  --category-col country \
+  --category Ethiopia \
+  --subgroup-col year \
+  --outdir hmmibd_ethiopia_by_year \
+  --na-char N \
+  --exclude-chr Pf3D7_API_v3,Pf3D7_MIT_v3
+```
+Key Options:
+```--category-col```: metadata column defining your primary groups (e.g. country, region)
+```--category```: run a subset (comma-separated); leave blank (or do not use) to run all categories (e.g. all countries)
+```--subgroup-col```: optional secondary grouping within a category (e.g. year)
+```--fws-th```: *Fws* threshold required for samples to be included; Default set to 0.95 to only include "monoclonal" samples
+```--maf```: Minor allele frequency minimum reuirement, Default set to 0.01
+```--hmmibd-bin```: path/name of hmmIBD executable if not on PATH
+```--skip-hmmibd```: only write inputs, do not run hmmIBD
+
+#### Outputs
+Output files will be written into the ```--outdir```
+
+One subdirectory per category/subgroup containing hmmIBD raw outputs:
+- hmmIBD_<group>_maf0.01.txt
+- hmmIBD_<group>_maf0.01_out.hmm.txt
+- hmmIBD_<group>_maf0.01_out.hmm_fract.txt
+
+A shared legend file:
+- ibd_matrix_hap_leg.tsv
+
+### Selection - Step 2: Summarise IBD into windows + gene annotation
+Aggregates hmmIBD segments into genome-wide IBD fraction windows (default 50 kb - some users might find 10kb more appropriate) per group, and annotates high-IBD windows with known genes.
+
+```
+malaria-pipeline hmmibd-summary \
+  --workdir hmmibd_ethiopia_by_year \
+  --ref_index Pfalciparum.genome.fasta.fai \
+  --gene_product pf_genome_product_v3.tsv \
+  --suffix 10_12_2025 \
+  --window_size 50000 \
+  --maf 0.01 \
+  --quantile_cutoff 0.90 \
+  --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
+```
+Key Options:
+```--suffix```: prefix for output files (use dates in DD_MM_YYYY format, like "10_12_2025" - **USE UNDERSCORES - NO SPACES**)
+```--quantile_cutoff```: defines “high-IBD windows” for annotation (e.g. 0.90 or 0.95)
+
+#### Outputs
+Output files will be written into the ```--workdir```
+- <suffix>_hmmIBD_ibd_win50kb.tsv
+- <suffix>_hmmIBD_fraction.tsv
+- <suffix>_hmmIBD_ibd_win50kb_annotated_q0.90.tsv
+- <suffix>_hmmIBD_ibd_win50kb_annotated_q0.90_wide.tsv
+
+### Selection - Step 1: Plot IBD summaries
+Generates:
+- pairwise fraction IBD boxplots
+- genome-wide fraction plots (Manhattan-style per group)
+- chromosome painting plots (high-IBD windows coloured by group, drug-resistance overlays in red)
+
+```
+malaria-pipeline hmmibd-ibdplots \
+  --workdir hmmibd_ethiopia_by_year \
+  --ref_index Pfalciparum.genome.fasta.fai \
+  --gene_product pf_genome_product_v3.tsv \
+  --suffix 10_12_2025 \
+  --window_size 50000 \
+  --quantile_cutoff 0.90 \
+  --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
+```
+
+#### Outputs
+Written, by default, into ```/workdir/win_50kb/```
+- ibd_fraction_boxplot.png
+- ibd_genomewide_fraction_cleaned.png
+- ibd_chromosome_painting.png
+
+## Selection calculating iHS and XP-EHH
+The toolkit provides two complementary selection scan workflows using the *rehh* R-based package:
+- *iHS* (within-population scan) directly from the binary SNP matrix
+- *XP-EHH* (between-population comparisons) from scan_hh outputs (```scanned_haplotypes_<pop>.tsv```)
+Both support category + subgroup style grouping (e.g. country and year), consistent with the IBD workflow.
+
+### *iHS* Workflow
+Runs a full iHS pipeline:
+1. subset samples by category (and optional subgroup)
+2. build haplotype objects per chromosome using ```rehh::data2haplohh```
+3. compute ```scan_hh```
+4. compute iHS using ```ihh2ihs```
+5. output per-group plots + extreme-site tables with gene and drug-resistance highlighting
+
+Example - Ethiopia split by year:
+```
+malaria-pipeline ihs-selection \
+  --workdir selection_ihs_ethiopia_by_year \
+  --matrix_binary snps.mat.bin \
+  --metadata metadata.tsv \
+  --annotation snp_annotation_filtered.tsv \
+  --genome-file pf_genome_product_v3.tsv \
+  --label_category country \
+  --subgroup_col year \
+  --category Ethiopia \
+  --focus-pop Ethiopia_2013 \
+  --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
+```
+
 
 ### Fst
 
