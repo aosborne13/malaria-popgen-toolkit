@@ -287,7 +287,7 @@ res_gene_patterns <- c(
   "DHPS", "dihydropteroate synthetase", "PPPK-DHPS",
   "MDR1", "multidrug resistance protein",
   "UBP1", "ubiquitin carboxyl-terminal hydrolase 1",
-  "coronin", "AP2-MU", "PX1", "plasmepsin",
+  "coronin", "AP2-MU", "PX1",
   # gene IDs
   "PF3D7_0709000",  # CRT
   "PF3D7_1343700",  # K13
