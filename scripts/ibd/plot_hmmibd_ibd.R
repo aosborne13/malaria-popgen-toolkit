@@ -285,7 +285,7 @@ res_gene_patterns <- c(
   "Kelch13", "K13", "CRT", "chloroquine resistance transporter",
   "DHFR", "dihydrofolate reductase",
   "DHPS", "dihydropteroate synthetase", "PPPK-DHPS",
-  "MDR1", "multidrug resistance protein",
+  "MDR1", "multidrug resistance protein 1",
   "UBP1", "ubiquitin carboxyl-terminal hydrolase 1",
   "coronin", "AP2-MU", "PX1",
   # gene IDs
