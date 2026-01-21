@@ -14,7 +14,9 @@ Downstream processing can also be carried out using the *fastq2matrix* and *mala
 
 https://github.com/LSHTMPathogenSeqLab/
 
-For vcf files, the csq field is prefered which can be generated using *bcftools*, available at: https://github.com/samtools/bcftools.
+For vcf files:
+- Files should be filtered to only include the **core genome** - sub-telmomeric and hypervariable regions should be removed (a core genome bed file will be provided in a future release of this package - available through *MalariaGEN*)
+- The csq field is prefered which can be generated using *bcftools*, available at: https://github.com/samtools/bcftools.
 
 ### Install **malaria-popgen-toolkit**.
 Step 1: Install micromamba (if you don't already have it).
