@@ -277,8 +277,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--workdir", required=True)
     p.add_argument("--matrix_binary", required=True)
     p.add_argument("--metadata", required=True)
-    p.add_argument("--annotation", required=True)
-    p.add_argument("--genome-file", required=True)
+    # NOTE: --annotation has been removed; R script now builds marker map from the matrix.
+    p.add_argument(
+        "--genome-file",
+        required=True,
+        help="Genome product TSV with columns: chr,pos_start,pos_end,gene_id,gene_product,gene_name",
+    )
     p.add_argument("--label_category", default="country")
     p.add_argument("--subgroup_col", default=None)
     p.add_argument("--label_id", default="sample_id")
@@ -457,7 +461,7 @@ def main(argv: list[str] | None = None) -> None:
             workdir=args.workdir,
             matrix_binary=args.matrix_binary,
             metadata_path=args.metadata,
-            annotation_path=args.annotation,
+            # NOTE: annotation_path removed
             genome_file=args.genome_file,
             label_category=args.label_category,
             subgroup_col=args.subgroup_col,
@@ -504,4 +508,5 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
 
