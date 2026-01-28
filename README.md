@@ -85,8 +85,7 @@ Candidate: AAT1, PX1, UBP1, AP2MU
 ```
 malaria-pipeline missense-drugres-af \
   --vcf path/to/filtered.vcf.gz \
-  --ref path/to/reference.fasta \
-  --gff3 path/to/annotation.gff3 \
+  --species Pf3D7 \
   --metadata path/to/metadata.tsv \
   --outdir results_missense_AF \
   --min-dp 5 \
@@ -287,8 +286,7 @@ Aggregates hmmIBD segments into genome-wide IBD fraction windows (default 50 kb 
 ```
 malaria-pipeline hmmibd-summary \
   --workdir hmmibd_ethiopia_by_year \
-  --ref_index Pfalciparum.genome.fasta.fai \
-  --gene_product pf_genome_product_v3.tsv \
+  --species Pf3D7 \
   --suffix 10_12_2025 \
   --window_size 50000 \
   --maf 0.01 \
@@ -315,8 +313,7 @@ Generates:
 ```
 malaria-pipeline hmmibd-ibdplots \
   --workdir hmmibd_ethiopia_by_year \
-  --ref_index Pfalciparum.genome.fasta.fai \
-  --gene_product pf_genome_product_v3.tsv \
+  --species Pf3D7 \
   --suffix 10_12_2025 \
   --window_size 50000 \
   --quantile_cutoff 0.90 \
@@ -349,14 +346,15 @@ malaria-pipeline ihs-selection \
   --workdir selection_ihs_ethiopia_by_year \
   --matrix_binary snps.mat.bin \
   --metadata metadata.tsv \
-  --genome-file pf_genome_product_v3.tsv \
+  --species Pf3D7 \
   --label_category country \
   --subgroup_col year \
   --category Ethiopia \
   --focus-pop Ethiopia_2013 \
   --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
 ```
-
+### *XP-EHH* Workflow
+*Under construction...*
 
 ### Fst
 *Under construction...*
