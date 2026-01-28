@@ -43,6 +43,7 @@ from malaria_popgen_toolkit.commands import (
     pca_plot,
     xpehh_selection,
 )
+from malaria_popgen_toolkit.resources.resolver import resolve_species
 
 
 def require_tool(name: str) -> None:
@@ -65,8 +66,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compute missense allele frequencies in drug-resistance genes",
     )
     p.add_argument("--vcf", required=True)
-    p.add_argument("--ref", required=True)
-    p.add_argument("--gff3", required=True)
+    p.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
+    # Optional overrides (advanced users)
+    p.add_argument("--ref", default=None, help="Optional override: reference FASTA path")
+    p.add_argument("--gff3", default=None, help="Optional override: GFF3 path")
     p.add_argument("--metadata", required=True)
     p.add_argument("--outdir", default="missense_af")
     p.add_argument("--min-dp", type=int, default=5)
@@ -200,7 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--regex-group",
         type=int,
-        default=3,
+       default=3,
         help="Capture group index in regex_chr that contains numeric chromosome",
     )
 
@@ -216,11 +219,13 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Directory with hmmIBD outputs and ibd_matrix_hap_leg.tsv",
     )
-    p.add_argument("--ref_index", required=True, help="Reference FASTA .fai index (Pf3D7)")
+    p.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
+    # Optional overrides (advanced users)
+    p.add_argument("--ref_index", default=None, help="Optional override: reference FASTA .fai path")
     p.add_argument(
         "--gene_product",
-        required=True,
-        help="Pf3D7 genome product TSV annotation (pf_genome_product_v3.tsv)",
+        default=None,
+        help="Optional override: genome product TSV annotation (pf_genome_product_v3.tsv)",
     )
     p.add_argument("--suffix", required=True, help="Prefix for output files (e.g. 10_12_2025)")
     p.add_argument("--window_size", type=int, default=50000)
@@ -245,8 +250,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     def _add_hmmibd_plot_args(pp: argparse.ArgumentParser) -> None:
         pp.add_argument("--workdir", required=True)
-        pp.add_argument("--ref_index", required=True)
-        pp.add_argument("--gene_product", required=True)
+        pp.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
+        # Optional overrides (advanced users)
+        pp.add_argument("--ref_index", default=None, help="Optional override: reference FASTA .fai path")
+        pp.add_argument("--gene_product", default=None, help="Optional override: gene product TSV")
         pp.add_argument("--suffix", required=True)
         pp.add_argument("--window_size", type=int, default=50000)
         pp.add_argument("--quantile_cutoff", type=float, default=0.95)
@@ -275,13 +282,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run iHS scans from a binary SNP matrix (per category/subgroup) and generate plots/TSVs",
     )
     p.add_argument("--workdir", required=True)
+    p.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
     p.add_argument("--matrix_binary", required=True)
     p.add_argument("--metadata", required=True)
-    # NOTE: --annotation has been removed; R script now builds marker map from the matrix.
+    # Optional override (advanced users); default resolves via --species
     p.add_argument(
         "--genome-file",
-        required=True,
-        help="Genome product TSV with columns: chr,pos_start,pos_end,gene_id,gene_product,gene_name",
+        default=None,
+        help="Optional override: genome product TSV with columns: chr,pos_start,pos_end,gene_id,gene_product,gene_name",
     )
     p.add_argument("--label_category", default="country")
     p.add_argument("--subgroup_col", default=None)
@@ -317,7 +325,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run XP-EHH comparisons from scan_hh outputs (scanned_haplotypes_<pop>.tsv)",
     )
     p.add_argument("--workdir", required=True)
-    p.add_argument("--genome-file", required=True)
+    # Optional: keep current behavior (explicit genome-file), but allow species too
+    p.add_argument("--species", default=None, help="Species tag (e.g. Pf3D7) to auto-resolve genome-file")
+    p.add_argument("--genome-file", default=None, help="Optional override: gene product TSV")
     p.add_argument("--focus-pop", required=True)
     p.add_argument("--min-abs-xpehh", type=float, default=2.0)
     p.add_argument("--min-logp", type=float, default=1.3)
@@ -344,10 +354,14 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "missense-drugres-af":
         require_tool("bcftools")
+        refs = resolve_species(args.species)
+        ref_fasta = args.ref or refs["fasta"]
+        gff3 = args.gff3 or refs["gff3"]
+
         missense_drugres_af.run(
             vcf=args.vcf,
-            ref_fasta=args.ref,
-            gff3=args.gff3,
+            ref_fasta=ref_fasta,
+            gff3=gff3,
             metadata_path=args.metadata,
             outdir=args.outdir,
             min_dp=args.min_dp,
@@ -425,10 +439,14 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "hmmibd-summary":
         require_tool("Rscript")
+        refs = resolve_species(args.species)
+        ref_index = args.ref_index or refs["fai"]
+        gene_product = args.gene_product or refs["gene_product"]
+
         hmmibd_summary.run(
             workdir=args.workdir,
-            ref_index=args.ref_index,
-            gene_product=args.gene_product,
+            ref_index=ref_index,
+            gene_product=gene_product,
             suffix=args.suffix,
             window_size=args.window_size,
             maf=args.maf,
@@ -441,10 +459,14 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command in ("hmmibd-ibdplots", "hmmibd-ibdplot"):
         require_tool("Rscript")
+        refs = resolve_species(args.species)
+        ref_index = args.ref_index or refs["fai"]
+        gene_product = args.gene_product or refs["gene_product"]
+
         hmmibd_ibdplots.run(
             workdir=args.workdir,
-            ref_index=args.ref_index,
-            gene_product=args.gene_product,
+            ref_index=ref_index,
+            gene_product=gene_product,
             suffix=args.suffix,
             window_size=args.window_size,
             quantile_cutoff=args.quantile_cutoff,
@@ -457,12 +479,14 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "ihs-selection":
         require_tool("Rscript")
+        refs = resolve_species(args.species)
+        genome_file = args.genome_file or refs["gene_product"]
+
         ihs_selection.run(
             workdir=args.workdir,
             matrix_binary=args.matrix_binary,
             metadata_path=args.metadata,
-            # NOTE: annotation_path removed
-            genome_file=args.genome_file,
+            genome_file=genome_file,
             label_category=args.label_category,
             subgroup_col=args.subgroup_col,
             label_id=args.label_id,
@@ -489,9 +513,17 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "xpehh-selection":
         require_tool("Rscript")
+        if args.genome_file:
+            genome_file = args.genome_file
+        elif args.species:
+            refs = resolve_species(args.species)
+            genome_file = refs["gene_product"]
+        else:
+            parser.error("xpehh-selection requires either --genome-file or --species")
+
         xpehh_selection.run(
             workdir=args.workdir,
-            genome_file=args.genome_file,
+            genome_file=genome_file,
             focus_pop=args.focus_pop,
             min_abs_xpehh=args.min_abs_xpehh,
             min_logp=args.min_logp,
