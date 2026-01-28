@@ -349,7 +349,6 @@ malaria-pipeline ihs-selection \
   --workdir selection_ihs_ethiopia_by_year \
   --matrix_binary snps.mat.bin \
   --metadata metadata.tsv \
-  --annotation snp_annotation_filtered.tsv \
   --genome-file pf_genome_product_v3.tsv \
   --label_category country \
   --subgroup_col year \
