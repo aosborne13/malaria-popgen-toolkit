@@ -1,4 +1,6 @@
 # malaria-popgen-toolkit
+*Undergoing renovations...*
+
 A collection of reproducible population genomics workflows for *Plasmodium* species, designed to support transparent, accessible, and scalable malaria genomic analysis.
 
 *Tools and documentation were made for WGS data. Amplicon sequencing is technically not supported at the moment but many of these tools should be compatible with it.*
