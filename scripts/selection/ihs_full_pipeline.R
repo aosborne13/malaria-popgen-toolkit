@@ -21,8 +21,8 @@ suppressPackageStartupMessages({
 # ─────────────────────────────────────────────────────────────
 calculate_maf <- function(mat) {
   m <- as.matrix(mat)
-  m[m < 0] <- NA          # just in case
-  p <- rowMeans(m == 1, na.rm = TRUE)  # alt allele freq
+  m[m < 0] <- NA
+  p <- rowMeans(m == 1, na.rm = TRUE)  # alt allele freq (assuming 1 encodes ALT)
   p[is.nan(p)] <- NA_real_
   maf <- pmin(p, 1 - p)
   maf
@@ -40,9 +40,6 @@ option_list <- list(
               metavar = "character"),
   make_option(c("-m", "--metadata"), type = "character", default = NULL,
               help = "Full path to metadata TSV file [required]",
-              metavar = "character"),
-  make_option(c("-a", "--annotation"), type = "character", default = NULL,
-              help = "SNP-level annotation file (chr,pos,ref,alt,...) [required]",
               metavar = "character"),
 
   # Primary grouping (e.g. country) and optional subgroup (e.g. year)
@@ -94,9 +91,9 @@ option_list <- list(
               help = "Number of threads for data.table [default %default]",
               metavar = "number"),
 
-  # Gene-level annotation for iHS
+  # Gene-level annotation for iHS (only genome product TSV now)
   make_option(c("--genome-file"), type = "character", default = NULL,
-              help = "Pf genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
+              help = "Genome product TSV with columns: chr,pos_start,pos_end,gene_id,gene_product,gene_name [required]",
               metavar = "character"),
   make_option(c("--focus-pop"), type = "character", default = NULL,
               help = "Focus population label for detailed plots (must match one of the resulting categories, e.g. Ethiopia_2017)",
@@ -124,7 +121,6 @@ opt <- parse_args(opt_parser)
 workdir         <- opt$workdir
 bin_mat_file    <- opt$matrix_binary
 metadata_file   <- opt$metadata
-annotation_file <- opt$annotation
 category_arg    <- opt$category
 label_category  <- opt$label_category
 subgroup_col    <- opt$subgroup_col
@@ -149,24 +145,15 @@ freqbin      <- opt$freqbin
 ihs_thresh   <- opt$`ihs-thresh`
 logp_thresh  <- opt$`logp-thresh`
 
-if (is.null(bin_mat_file)) {
-  stop("ERROR: --matrix_binary is required\n", call. = FALSE)
-}
-if (!file.exists(bin_mat_file)) {
-  stop("ERROR: matrix_binary file not found: ", bin_mat_file, "\n", call. = FALSE)
-}
-if (is.null(metadata_file)) {
-  stop("ERROR: --metadata is required\n", call. = FALSE)
-}
-if (!file.exists(metadata_file)) {
-  stop("ERROR: metadata file not found: ", metadata_file, "\n", call. = FALSE)
-}
-if (is.null(annotation_file)) {
-  stop("ERROR: --annotation is required\n", call. = FALSE)
-}
-if (!file.exists(annotation_file)) {
-  stop("ERROR: annotation file not found: ", annotation_file, "\n", call. = FALSE)
-}
+# ─────────────────────────────────────────────────────────────
+# Validate inputs
+# ─────────────────────────────────────────────────────────────
+if (is.null(bin_mat_file)) stop("ERROR: --matrix_binary is required\n", call. = FALSE)
+if (!file.exists(bin_mat_file)) stop("ERROR: matrix_binary file not found: ", bin_mat_file, "\n", call. = FALSE)
+
+if (is.null(metadata_file)) stop("ERROR: --metadata is required\n", call. = FALSE)
+if (!file.exists(metadata_file)) stop("ERROR: metadata file not found: ", metadata_file, "\n", call. = FALSE)
+
 if (is.null(genome_file) || !file.exists(genome_file)) {
   stop("ERROR: --genome-file must be provided and must exist.\n", call. = FALSE)
 }
@@ -177,14 +164,12 @@ setDTthreads(threads)
 message("Workdir:        ", workdir)
 message("Binary matrix:  ", bin_mat_file)
 message("Metadata:       ", metadata_file)
-message("Annotation:     ", annotation_file)
 message("Genome file:    ", genome_file)
 
 # ─────────────────────────────────────────────────────────────
-# Load annotation & metadata
+# Load metadata
 # ─────────────────────────────────────────────────────────────
-annotation_raw <- read_tsv(annotation_file, show_col_types = FALSE)
-metadata_all   <- read_tsv(metadata_file, show_col_types = FALSE)
+metadata_all <- read_tsv(metadata_file, show_col_types = FALSE)
 
 needed_cols <- c(label_id, label_category, label_fws)
 if (!all(needed_cols %in% colnames(metadata_all))) {
@@ -203,10 +188,11 @@ if (!is.null(subgroup_col) && nzchar(subgroup_col)) {
   }
 }
 
+# ─────────────────────────────────────────────────────────────
 # Build grouping definition table (cat_def)
 # cat_def has columns: parent_cat, subgroup (may be NA), cat_label
+# ─────────────────────────────────────────────────────────────
 if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
-  # Old behaviour: categories = values of label_category (e.g. countries)
   available_categories <- metadata_all %>%
     dplyr::select(all_of(label_category)) %>%
     distinct() %>%
@@ -221,8 +207,7 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
   message("Available categories in ", label_category, ": ",
           paste(available_categories, collapse = ", "))
 
-  if (is.null(category_arg) || category_arg == "" ||
-      tolower(category_arg) == "all") {
+  if (is.null(category_arg) || category_arg == "" || tolower(category_arg) == "all") {
     categories_vec <- available_categories
     message("No specific category provided; using ALL categories.")
   } else {
@@ -241,14 +226,11 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
     subgroup   = NA_character_,
     cat_label  = categories_vec
   )
-  message("Will run iHS for categories: ",
-          paste(cat_def$cat_label, collapse = ", "))
+  message("Will run iHS for categories: ", paste(cat_def$cat_label, collapse = ", "))
 
 } else {
-  # New behaviour: (parent category, subgroup) combos, e.g. Ethiopia x year
   combo_tbl <- metadata_all %>%
-    filter(!is.na(.data[[label_category]]),
-           !is.na(.data[[subgroup_col]])) %>%
+    filter(!is.na(.data[[label_category]]), !is.na(.data[[subgroup_col]])) %>%
     distinct(parent_cat = .data[[label_category]],
              subgroup   = .data[[subgroup_col]])
 
@@ -260,8 +242,7 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
   message("Available primary categories in ", label_category, ": ",
           paste(sort(unique(combo_tbl$parent_cat)), collapse = ", "))
 
-  if (is.null(category_arg) || category_arg == "" ||
-      tolower(category_arg) == "all") {
+  if (is.null(category_arg) || category_arg == "" || tolower(category_arg) == "all") {
     requested_parents <- sort(unique(combo_tbl$parent_cat))
     message("No specific primary category provided; using ALL: ",
             paste(requested_parents, collapse = ", "))
@@ -271,8 +252,7 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
     if (length(missing_parents) > 0) {
       stop("ERROR: Requested primary category(ies) not found in metadata: ",
            paste(missing_parents, collapse = ", "), "\n",
-           "Available: ", paste(sort(unique(combo_tbl$parent_cat)),
-                                collapse = ", "), "\n",
+           "Available: ", paste(sort(unique(combo_tbl$parent_cat)), collapse = ", "), "\n",
            call. = FALSE)
     }
   }
@@ -286,28 +266,23 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
     arrange(parent_cat, subgroup)
 
   if (nrow(cat_def) == 0) {
-    stop("ERROR: No (category, subgroup) combinations left after filtering.\n",
-         call. = FALSE)
+    stop("ERROR: No (category, subgroup) combinations left after filtering.\n", call. = FALSE)
   }
 
-  message("Will run iHS for groups: ",
-          paste(cat_def$cat_label, collapse = ", "))
+  message("Will run iHS for groups: ", paste(cat_def$cat_label, collapse = ", "))
 }
 
 # Decide focus population label (must match cat_label)
-if (is.null(focus_pop) || focus_pop == "" ||
-    !(focus_pop %in% cat_def$cat_label)) {
-  if (!is.null(focus_pop) && focus_pop != "" &&
-      !(focus_pop %in% cat_def$cat_label)) {
-    warning("Requested focus-pop '", focus_pop,
-            "' not among resulting groups; defaulting to first.\n")
+if (is.null(focus_pop) || focus_pop == "" || !(focus_pop %in% cat_def$cat_label)) {
+  if (!is.null(focus_pop) && focus_pop != "" && !(focus_pop %in% cat_def$cat_label)) {
+    warning("Requested focus-pop '", focus_pop, "' not among resulting groups; defaulting to first.\n")
   }
   focus_pop <- cat_def$cat_label[1]
 }
 message("Focus population: ", focus_pop)
 
 # ─────────────────────────────────────────────────────────────
-# Define drug-resistance gene regions
+# Define drug-resistance gene regions (coordinates are numeric CHR/POS)
 # ─────────────────────────────────────────────────────────────
 drug_genes <- tibble::tribble(
   ~gene,   ~CHR, ~START,   ~END,
@@ -323,7 +298,8 @@ drug_genes <- tibble::tribble(
 )
 
 # ─────────────────────────────────────────────────────────────
-# Load genome product annotation
+# Load genome product annotation (intervals)
+# Expected headers: chr pos_start pos_end gene_id gene_product gene_name
 # ─────────────────────────────────────────────────────────────
 genes <- read_tsv(genome_file, show_col_types = FALSE)
 
@@ -382,8 +358,7 @@ for (i_grp in seq_len(nrow(cat_def))) {
 
   samples_select <- c("chr", "pos", "ref", sample_ids)
 
-  message("  Loading SNP matrix subset for group (",
-          length(sample_ids), " samples)...")
+  message("  Loading SNP matrix subset for group (", length(sample_ids), " samples)...")
 
   snp <- fread(bin_mat_file, sep = "\t",
                select = samples_select,
@@ -393,16 +368,12 @@ for (i_grp in seq_len(nrow(cat_def))) {
     stop("ERROR: Matrix must start with columns: chr, pos, ref\n", call. = FALSE)
   }
 
-  # Copy annotation so we don't mutate the global version
-  annotation <- annotation_raw
-
   # Filter chromosomes if requested
   if (!is.null(rm_chr_str) && nzchar(rm_chr_str)) {
     rm_chr <- strsplit(rm_chr_str, ",")[[1]] |> trimws()
     if (any(rm_chr %in% unique(snp$chr))) {
       message("  Removing chromosomes: ", paste(rm_chr, collapse = ", "))
-      snp        <- snp        %>% filter(!chr %in% rm_chr)
-      annotation <- annotation %>% filter(!chr %in% rm_chr)
+      snp <- snp %>% filter(!chr %in% rm_chr)
     } else {
       warning("  None of the chromosomes in --remove_chr found in matrix for this group; continuing.")
     }
@@ -411,8 +382,7 @@ for (i_grp in seq_len(nrow(cat_def))) {
   }
 
   # Transform chromosome from string to numeric via regex
-  snp$chr        <- as.numeric(stringr::str_match(snp$chr, pattern)[, groupid])
-  annotation$chr <- as.numeric(stringr::str_match(annotation$chr, pattern)[, groupid])
+  snp$chr <- as.numeric(stringr::str_match(snp$chr, pattern)[, groupid])
 
   # Keep metadata rows whose IDs are present in matrix columns
   meta_cat <- meta_cat %>%
@@ -420,11 +390,6 @@ for (i_grp in seq_len(nrow(cat_def))) {
   if (nrow(meta_cat) < 2) {
     warning("  Group ", cat_label, ": fewer than 2 samples in matrix; skipping.")
     next
-  }
-
-  # Re-check ordering / overlap
-  if (!all(meta_cat[[label_id]] %in% colnames(snp)[-(1:3)])) {
-    warning("  Some metadata samples are missing from matrix for group ", cat_label)
   }
 
   # Recode missing data
@@ -443,14 +408,11 @@ for (i_grp in seq_len(nrow(cat_def))) {
   # Recode mixed/missing according to flags
   maj3 <- snp_c
   if (forced_recode) {
-    # NA -> 0 (REF), 0.5 -> 1 (ALT)
     maj3[is.na(maj3)] <- 0
     maj3[maj3 == 0.5] <- 1
   } else if (forced_mixed) {
-    # 0.5 -> 1, NA remain NA
     maj3[maj3 == 0.5] <- 1
   } else {
-    # default: mixed -> NA
     maj3[maj3 == 0.5] <- NA
   }
   rm(snp_c)
@@ -476,24 +438,25 @@ for (i_grp in seq_len(nrow(cat_def))) {
     unique()
 
   if (length(samples_keep) < 2) {
-    warning("  Group ", cat_label, ": fewer than 2 samples pass Fws ≥ ",
-            threshold_fws, "; skipping.")
+    warning("  Group ", cat_label, ": fewer than 2 samples pass Fws ≥ ", threshold_fws, "; skipping.")
     next
   }
 
   maj4 <- maj4[, samples_keep, drop = FALSE]
 
-  # Build SNP map and join with annotation
-  snp_annot <- snp_d_filt %>%
-    left_join(annotation, by = c("chr", "pos", "ref")) %>%
-    tidyr::unite("info", c(chr, pos), sep = "_", remove = FALSE)
+  # ─────────────────────────────────────────────────────────────
+  # Build SNP map WITHOUT external SNP annotation file
+  # We only need a consistent marker ID + chr + pos.
+  # ref comes from the matrix. alt is a placeholder (not used for iHS stats).
+  # ─────────────────────────────────────────────────────────────
+  snp_d_filt$chr <- as.numeric(snp_d_filt$chr)
+  snp_d_filt$pos <- suppressWarnings(as.numeric(snp_d_filt$pos))
 
-  if (!all(c("alt") %in% colnames(snp_annot))) {
-    stop("ERROR: annotation must contain at least columns chr,pos,ref,alt.\n",
-         call. = FALSE)
-  }
-
-  map <- snp_annot %>%
+  map <- snp_d_filt %>%
+    mutate(
+      info = paste(chr, pos, sep = "_"),
+      alt  = "ALT"
+    ) %>%
     select(info, chr, pos, ref, alt) %>%
     distinct()
 
@@ -510,8 +473,7 @@ for (i_grp in seq_len(nrow(cat_def))) {
 
   hap_c <- as.data.frame(hap_c, stringsAsFactors = FALSE)
   is_char <- sapply(hap_c, is.character)
-  hap_c[is_char] <- lapply(hap_c[is_char],
-                           function(x) suppressWarnings(as.numeric(x)))
+  hap_c[is_char] <- lapply(hap_c[is_char], function(x) suppressWarnings(as.numeric(x)))
 
   # Create haplotypes per chromosome and run scan_hh
   u_chr <- sort(unique(map$chr))
@@ -519,32 +481,26 @@ for (i_grp in seq_len(nrow(cat_def))) {
 
   log_file <- file.path(workdir, paste0(category_str, "_rehh.log"))
   sink(log_file, append = FALSE)
-  cat("## Create haplotypes: data2haplohh() & scan_hh() for group ",
-      category_str, " ##\n", sep = "")
+  cat("## Create haplotypes: data2haplohh() & scan_hh() for group ", category_str, " ##\n", sep = "")
 
   for (uchr in u_chr) {
     cat("Chr ", uchr, " ...\n", sep = "")
 
-    # indices of markers for this chromosome in the map
     idx_chr <- which(map$chr == uchr)
-
     if (length(idx_chr) == 0) {
       cat("  No markers for chr ", uchr, " after filtering; skipping.\n", sep = "")
       next
     }
 
-    # subset haplotypes and map for this chromosome
     hap_chr_s <- hap_c[, idx_chr, drop = FALSE]
     map_chr   <- map[idx_chr, , drop = FALSE]
 
-    # sanity check: genotype columns = markers in map
     if (ncol(hap_chr_s) != nrow(map_chr)) {
       stop("For group ", category_str, " chr ", uchr,
            ": number of markers in hap (", ncol(hap_chr_s),
            ") != markers in map (", nrow(map_chr), ").", call. = FALSE)
     }
 
-    # add explicit unique hap IDs as first column
     hap_ids <- paste0("h", seq_len(nrow(hap_chr_s)))
     hap_chr_out <- cbind(hap_ids, hap_chr_s)
 
@@ -552,8 +508,7 @@ for (i_grp in seq_len(nrow(cat_def))) {
     write.table(hap_chr_out, hap_file,
                 sep = "\t", col.names = FALSE, quote = FALSE, row.names = FALSE)
 
-    map_file_chr <- file.path(workdir,
-                              sprintf("snp.info.chr%d.%s", uchr, category_str))
+    map_file_chr <- file.path(workdir, sprintf("snp.info.chr%d.%s", uchr, category_str))
     write.table(map_chr, map_file_chr,
                 quote = FALSE, row.names = FALSE, col.names = FALSE)
 
@@ -578,15 +533,12 @@ for (i_grp in seq_len(nrow(cat_def))) {
     next
   }
 
-  # Store scan_hh results per group
-  scanned_file <- file.path(workdir,
-                            sprintf("scanned_haplotypes_%s.tsv", category_str))
+  scanned_file <- file.path(workdir, sprintf("scanned_haplotypes_%s.tsv", category_str))
   results_hh$category <- category_str
   write.table(results_hh, scanned_file,
               quote = FALSE, col.names = TRUE, row.names = FALSE, sep = "\t")
   message("  Wrote scan_hh results: ", scanned_file)
 
-  # Compute iHS for this group
   message("  Computing iHS via ihh2ihs()...")
   ihs_obj <- ihh2ihs(results_hh, min_maf = min_maf_ihs, freqbin = freqbin)
 
@@ -638,7 +590,6 @@ message("Wrote extreme iHS annotation: ", annot_file)
 plot_dir <- file.path(workdir, "plots")
 dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
 
-# Mark DR SNPs and build genome-wide cumulative coordinates
 ihs_all <- ihs_all %>%
   rowwise() %>%
   mutate(
@@ -664,20 +615,19 @@ ihs_all <- ihs_all %>%
   left_join(chr_offsets, by = "CHR") %>%
   mutate(
     POS_cum = POSITION + chr_offset,
-    logp    = LOGPVALUE  # ihh2ihs already gives -log10(p)
+    logp    = LOGPVALUE
   )
 
 axis_df <- ihs_all %>%
   group_by(CHR) %>%
   summarise(center = (min(POS_cum) + max(POS_cum)) / 2, .groups = "drop")
 
-# iHS plot, all groups stacked vertically
 p_ihs <- ggplot(ihs_all,
                 aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
   geom_point(alpha = 0.4, size = 1.0) +
   geom_point(data = ihs_all %>% filter(is_drug_snp),
              color = "red", size = 2.0) +
-  facet_wrap(~category_name, ncol = 1) +   # stacked vertically
+  facet_wrap(~category_name, ncol = 1) +
   scale_x_continuous(label = axis_df$CHR, breaks = axis_df$center / 1e6) +
   scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
   geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
@@ -693,7 +643,6 @@ p_ihs <- ggplot(ihs_all,
 ggsave(file.path(plot_dir, "manhattan_ihs_per_group.png"),
        p_ihs, width = 10, height = 12, dpi = 300)
 
-# -log10(p) plot, all groups stacked vertically
 p_logp <- ggplot(ihs_all,
                  aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
   geom_point(alpha = 0.4, size = 1.0) +
@@ -716,10 +665,7 @@ ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_group.png"),
 
 # ─────────────────────────────────────────────────────────────
 # Per-category standalone plots + TSVs
-#   - TSVs: all high SNPs (any gene, with annotation)
-#   - Plots: only DR genes annotated (one SNP per gene)
 # ─────────────────────────────────────────────────────────────
-
 all_groups <- sort(unique(ihs_all$category_name))
 
 for (cat_nm in all_groups) {
@@ -733,12 +679,10 @@ for (cat_nm in all_groups) {
     group_by(CHR) %>%
     summarise(center = (min(POS_cum) + max(POS_cum)) / 2, .groups = "drop")
 
-  # ---- Annotate with gene info (for TSVs + label candidate pool)
   ihs_cat_annot <- ihs_cat %>%
     inner_join(genes_clean, by = "CHR") %>%
     filter(POSITION >= START, POSITION <= END)
 
-  # TSV of all high -log10(p) SNPs (any gene)
   high_logp_tbl <- ihs_cat_annot %>%
     filter(logp > logp_thresh) %>%
     select(category_name, CHR, POSITION, IHS, logp,
@@ -751,26 +695,19 @@ for (cat_nm in all_groups) {
            GENE_ID, GENE_NAME, PRODUCT,
            drug_gene, is_drug_snp)
 
-  write_tsv(high_logp_tbl,
-            file.path(plot_dir,
-                      sprintf("iHS_%s_logp_high_snps.tsv", cat_nm)))
-  write_tsv(high_ihs_tbl,
-            file.path(plot_dir,
-                      sprintf("iHS_%s_extreme_ihs_snps.tsv", cat_nm)))
+  write_tsv(high_logp_tbl, file.path(plot_dir, sprintf("iHS_%s_logp_high_snps.tsv", cat_nm)))
+  write_tsv(high_ihs_tbl,  file.path(plot_dir, sprintf("iHS_%s_extreme_ihs_snps.tsv", cat_nm)))
 
-  # ---- Plain iHS plot for this category
   p_ihs_cat <- ggplot(ihs_cat,
                       aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
     geom_point(data = ihs_cat %>% filter(is_drug_snp),
                color = "red", size = 2.2) +
-    scale_x_continuous(label = axis_df_cat$CHR,
-                       breaks = axis_df_cat$center / 1e6) +
+    scale_x_continuous(label = axis_df_cat$CHR, breaks = axis_df_cat$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
                linetype = "dashed", color = "black") +
-    labs(x = "Chromosome", y = "iHS",
-         title = paste("iHS:", cat_nm)) +
+    labs(x = "Chromosome", y = "iHS", title = paste("iHS:", cat_nm)) +
     theme_bw() +
     theme(
       legend.position = "none",
@@ -778,23 +715,19 @@ for (cat_nm in all_groups) {
       plot.title      = element_text(size = 14, face = "bold")
     )
 
-  ggsave(file.path(plot_dir,
-                   sprintf("manhattan_ihs_%s.png", cat_nm)),
+  ggsave(file.path(plot_dir, sprintf("manhattan_ihs_%s.png", cat_nm)),
          p_ihs_cat, width = 10, height = 5, dpi = 300)
 
-  # ---- Plain -log10(p) plot for this category
   p_logp_cat <- ggplot(ihs_cat,
                        aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
     geom_point(data = ihs_cat %>% filter(is_drug_snp),
                color = "red", size = 2.2) +
-    scale_x_continuous(label = axis_df_cat$CHR,
-                       breaks = axis_df_cat$center / 1e6) +
+    scale_x_continuous(label = axis_df_cat$CHR, breaks = axis_df_cat$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     geom_hline(yintercept = logp_thresh,
                linetype = "dashed", color = "black") +
-    labs(x = "Chromosome", y = "-log10(p-value)",
-         title = paste("-log10(p):", cat_nm)) +
+    labs(x = "Chromosome", y = "-log10(p-value)", title = paste("-log10(p):", cat_nm)) +
     theme_bw() +
     theme(
       legend.position = "none",
@@ -802,20 +735,13 @@ for (cat_nm in all_groups) {
       plot.title      = element_text(size = 14, face = "bold")
     )
 
-  ggsave(file.path(plot_dir,
-                   sprintf("manhattan_logp_ihs_%s.png", cat_nm)),
+  ggsave(file.path(plot_dir, sprintf("manhattan_logp_ihs_%s.png", cat_nm)),
          p_logp_cat, width = 10, height = 5, dpi = 300)
 
-  # ---- DR-only labels: pick one peak SNP per drug gene to keep plots quiet
+  # DR-only labels: one peak SNP per drug gene
+  label_logp_raw <- ihs_cat_annot %>% filter(is_drug_snp, logp > logp_thresh)
+  label_ihs_raw  <- ihs_cat_annot %>% filter(is_drug_snp, abs(IHS) > ihs_thresh)
 
-  # candidate pool: DR SNPs with high logp / |IHS|
-  label_logp_raw <- ihs_cat_annot %>%
-    filter(is_drug_snp, logp > logp_thresh)
-
-  label_ihs_raw <- ihs_cat_annot %>%
-    filter(is_drug_snp, abs(IHS) > ihs_thresh)
-
-  # one SNP per drug_gene: max logp or max |IHS|
   label_logp <- label_logp_raw %>%
     group_by(drug_gene) %>%
     slice_max(logp, n = 1, with_ties = FALSE) %>%
@@ -828,14 +754,12 @@ for (cat_nm in all_groups) {
     ungroup() %>%
     distinct(POSITION, CHR, IHS, drug_gene, POS_cum)
 
-  # Annotated -log10(p) with DR labels only
   p_logp_lab <- ggplot(ihs_cat,
                        aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.35, size = 1.2) +
     geom_hline(yintercept = logp_thresh,
                linetype = "dashed", color = "black") +
-    geom_point(data = ihs_cat %>%
-                 filter(POSITION %in% label_logp$POSITION),
+    geom_point(data = ihs_cat %>% filter(POSITION %in% label_logp$POSITION),
                color = "red", size = 2.4) +
     geom_text_repel(
       data = label_logp,
@@ -845,8 +769,7 @@ for (cat_nm in all_groups) {
       min.segment.length = 0,
       color = "black"
     ) +
-    scale_x_continuous(label = axis_df_cat$CHR,
-                       breaks = axis_df_cat$center / 1e6) +
+    scale_x_continuous(label = axis_df_cat$CHR, breaks = axis_df_cat$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     labs(x = "Chromosome", y = "-log10(p-value)",
          title = paste("-log10(p):", cat_nm, "(DR genes)")) +
@@ -857,18 +780,15 @@ for (cat_nm in all_groups) {
       plot.title      = element_text(size = 14, face = "bold")
     )
 
-  ggsave(file.path(plot_dir,
-                   sprintf("manhattan_logp_ihs_%s_annotated.png", cat_nm)),
+  ggsave(file.path(plot_dir, sprintf("manhattan_logp_ihs_%s_annotated.png", cat_nm)),
          p_logp_lab, width = 10, height = 5, dpi = 300)
 
-  # Annotated iHS with DR labels only
   p_ihs_lab <- ggplot(ihs_cat,
                       aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.35, size = 1.2) +
     geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
                linetype = "dashed", color = "black") +
-    geom_point(data = ihs_cat %>%
-                 filter(POSITION %in% label_ihs$POSITION),
+    geom_point(data = ihs_cat %>% filter(POSITION %in% label_ihs$POSITION),
                color = "red", size = 2.4) +
     geom_text_repel(
       data = label_ihs,
@@ -878,8 +798,7 @@ for (cat_nm in all_groups) {
       min.segment.length = 0,
       color = "black"
     ) +
-    scale_x_continuous(label = axis_df_cat$CHR,
-                       breaks = axis_df_cat$center / 1e6) +
+    scale_x_continuous(label = axis_df_cat$CHR, breaks = axis_df_cat$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
     labs(x = "Chromosome", y = "iHS",
          title = paste("iHS:", cat_nm, "(DR genes)")) +
@@ -890,12 +809,8 @@ for (cat_nm in all_groups) {
       plot.title      = element_text(size = 14, face = "bold")
     )
 
-  ggsave(file.path(plot_dir,
-                   sprintf("manhattan_ihs_%s_annotated.png", cat_nm)),
+  ggsave(file.path(plot_dir, sprintf("manhattan_ihs_%s_annotated.png", cat_nm)),
          p_ihs_lab, width = 10, height = 5, dpi = 300)
 }
 
 message("\nDone with iHS scanning + plotting.")
-
-
-
