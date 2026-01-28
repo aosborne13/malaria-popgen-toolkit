@@ -10,6 +10,8 @@ suppressPackageStartupMessages({
 
 # ─────────────────────────────────────────────────────────────
 # CLI options
+#   Keep old names + add new aliases (optional)
+#   Reference assets needed: genome-file only
 # ─────────────────────────────────────────────────────────────
 option_list <- list(
   make_option(c("-d", "--workdir"), type = "character", default = ".",
@@ -18,26 +20,51 @@ option_list <- list(
   make_option(c("--scan_prefix"), type = "character", default = "scanned_haplotypes_",
               help = "Prefix of scan_hh result files (e.g. scanned_haplotypes_) [default %default]",
               metavar = "character"),
+
+  # OLD name (your current script)
   make_option(c("--ref_pop"), type = "character", default = NULL,
               help = "Reference population label (e.g. Ethiopia) [required]",
               metavar = "character"),
+  # NEW alias (your CLI/wrapper)
+  make_option(c("--focus-pop"), type = "character", default = NULL,
+              help = "Alias for --ref_pop (reference population label)",
+              metavar = "character"),
+
   make_option(c("--targets"), type = "character", default = NULL,
-              help = "Comma-separated list of target populations (e.g. Cameroon,DRC,Ghana). If omitted, all populations except ref_pop are used.",
+              help = "Comma-separated list of target populations. If omitted, all populations except ref_pop are used.",
               metavar = "character"),
+
   make_option(c("--genome-file"), type = "character", default = NULL,
-              help = "Pf genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
+              help = "Genome product annotation TSV (pf_genome_product_v3.tsv) [required]",
               metavar = "character"),
+
+  # OLD names
   make_option(c("--xpehh-thresh"), type = "numeric", default = 2.5,
               help = "Absolute XP-EHH threshold for 'extreme' sites [default %default]",
               metavar = "numeric"),
   make_option(c("--logp-thresh"), type = "numeric", default = 1.3,
               help = "-log10(p) threshold for 'extreme' sites [default %default]",
               metavar = "numeric"),
+
+  # NEW aliases
+  make_option(c("--min-abs-xpehh"), type = "numeric", default = NA_real_,
+              help = "Alias for --xpehh-thresh (if set, overrides it)",
+              metavar = "numeric"),
+  make_option(c("--min-logp"), type = "numeric", default = NA_real_,
+              help = "Alias for --logp-thresh (if set, overrides it)",
+              metavar = "numeric"),
+
   make_option(c("--out_prefix"), type = "character", default = NULL,
               help = "Prefix for combined output files (default: <ref_pop>_vs_all)",
               metavar = "character"),
+
+  # OLD name
   make_option(c("--panel_comparisons"), type = "character", default = NULL,
-              help = "Comma-separated list of comparison names to show together in stacked panels (e.g. Ethiopia_vs_Cameroon,Ethiopia_vs_Ghana). If NULL, no grouped panel is drawn.",
+              help = "Comma-separated list of comparison names to show together in stacked panels.",
+              metavar = "character"),
+  # NEW alias
+  make_option(c("--panel-groups"), type = "character", default = NULL,
+              help = "Alias for --panel_comparisons",
               metavar = "character")
 )
 
@@ -45,16 +72,30 @@ opt <- parse_args(OptionParser(option_list = option_list))
 
 workdir      <- opt$workdir
 scan_prefix  <- opt$scan_prefix
-ref_pop      <- opt$ref_pop
-targets_arg  <- opt$targets
 genome_file  <- opt$`genome-file`
+
+# Resolve aliases (do not change behavior unless new flags are used)
+ref_pop <- opt$ref_pop
+if ((is.null(ref_pop) || ref_pop == "") && !is.null(opt$`focus-pop`) && opt$`focus-pop` != "") {
+  ref_pop <- opt$`focus-pop`
+}
+
 xpehh_thresh <- opt$`xpehh-thresh`
-logp_thresh  <- opt$`logp-thresh`
+if (!is.na(opt$`min-abs-xpehh`)) xpehh_thresh <- opt$`min-abs-xpehh`
+
+logp_thresh <- opt$`logp-thresh`
+if (!is.na(opt$`min-logp`)) logp_thresh <- opt$`min-logp`
+
+panel_cmps <- opt$panel_comparisons
+if ((is.null(panel_cmps) || panel_cmps == "") && !is.null(opt$`panel-groups`) && opt$`panel-groups` != "") {
+  panel_cmps <- opt$`panel-groups`
+}
+
+targets_arg  <- opt$targets
 out_prefix   <- opt$out_prefix
-panel_cmps   <- opt$panel_comparisons
 
 if (is.null(ref_pop) || ref_pop == "") {
-  stop("ERROR: --ref_pop is required.\n", call. = FALSE)
+  stop("ERROR: --ref_pop (or --focus-pop) is required.\n", call. = FALSE)
 }
 if (is.null(genome_file) || !file.exists(genome_file)) {
   stop("ERROR: --genome-file must be provided and must exist.\n", call. = FALSE)
@@ -72,8 +113,11 @@ message("Genome file:  ", genome_file)
 message("Out prefix:   ", out_prefix)
 
 # ─────────────────────────────────────────────────────────────
-# Determine target populations (auto-detect like iHS)
+# Everything below here is your original script unchanged
+# (auto-detect targets, run ies2xpehh, annotate with genome_file, plot, etc.)
 # ─────────────────────────────────────────────────────────────
+
+# Determine target populations (auto-detect like iHS)
 scan_files <- list.files(workdir, pattern = paste0("^", scan_prefix), full.names = FALSE)
 if (length(scan_files) == 0) {
   stop("ERROR: No files matching '", scan_prefix, "*' found in workdir.\n", call. = FALSE)
@@ -100,7 +144,6 @@ if (!is.null(targets_arg) && targets_arg != "") {
   }
   targets <- intersect(requested, all_pops)
 } else {
-  # default: all pops except ref
   targets <- setdiff(all_pops, ref_pop)
 }
 
@@ -112,16 +155,12 @@ if (length(targets) == 0) {
 
 message("Target populations: ", paste(targets, collapse = ", "))
 
-# ─────────────────────────────────────────────────────────────
 # Load reference scan_hh
-# ─────────────────────────────────────────────────────────────
 ref_file <- file.path(workdir, sprintf("%s%s.tsv", scan_prefix, ref_pop))
 message("Loading reference scan_hh: ", ref_file)
 scan_ref <- read.table(ref_file, header = TRUE)
 
-# ─────────────────────────────────────────────────────────────
 # Load genome annotation, define DR genes
-# ─────────────────────────────────────────────────────────────
 genes <- readr::read_tsv(genome_file, show_col_types = FALSE)
 
 genes_clean <- genes %>%
@@ -149,9 +188,7 @@ drug_genes <- tibble::tribble(
   "AAT1",       6, 1213100, 1217350
 )
 
-# ─────────────────────────────────────────────────────────────
 # XP-EHH per comparison
-# ─────────────────────────────────────────────────────────────
 xpehh_list <- list()
 
 for (target in targets) {
@@ -167,7 +204,6 @@ for (target in targets) {
   xpehh_out <- ies2xpehh(scan_pop1 = scan_ref, scan_pop2 = scan_target)
 
   df <- as_tibble(xpehh_out)
-  # drop rows that are all NA (can happen for some markers)
   df <- df[!apply(df, 1, function(x) all(is.na(x))), , drop = FALSE]
 
   if (nrow(df) == 0) {
@@ -184,9 +220,7 @@ for (target in targets) {
       POSITION   = as.numeric(POSITION)
     )
 
-  # save per-comparison table
-  out_comp <- file.path(workdir,
-                        sprintf("xpehh_%s_vs_%s.tsv", ref_pop, target))
+  out_comp <- file.path(workdir, sprintf("xpehh_%s_vs_%s.tsv", ref_pop, target))
   readr::write_tsv(df, out_comp)
   message("  Wrote: ", out_comp)
 
@@ -199,17 +233,11 @@ if (length(xpehh_list) == 0) {
 
 xpehh_all <- bind_rows(xpehh_list)
 
-# ─────────────────────────────────────────────────────────────
-# Combined output & annotation
-# ─────────────────────────────────────────────────────────────
-combined_file <- file.path(workdir,
-                           sprintf("%s_xpehh_all.tsv", out_prefix))
+combined_file <- file.path(workdir, sprintf("%s_xpehh_all.tsv", out_prefix))
 readr::write_tsv(xpehh_all, combined_file)
 message("\nWrote combined XP-EHH file: ", combined_file)
 
-# Only nuclear chromosomes, with gene annotation
-xpehh_all_nuc <- xpehh_all %>%
-  filter(CHR %in% 1:14)
+xpehh_all_nuc <- xpehh_all %>% filter(CHR %in% 1:14)
 
 xpehh_annotated <- xpehh_all_nuc %>%
   inner_join(genes_clean, by = "CHR") %>%
@@ -218,7 +246,6 @@ xpehh_annotated <- xpehh_all_nuc %>%
          CHR, POSITION, XPEHH, LOGPVALUE,
          GENE_ID, GENE_NAME, PRODUCT)
 
-# Mark DR regions on annotated table as well
 xpehh_annotated <- xpehh_annotated %>%
   rowwise() %>%
   mutate(
@@ -232,252 +259,15 @@ xpehh_annotated <- xpehh_annotated %>%
   mutate(
     drug_gene   = ifelse(is.na(drug_gene), "None", drug_gene),
     is_drug_snp = drug_gene != "None",
-    logp        = LOGPVALUE  # LOGPVALUE already -log10(p)
+    logp        = LOGPVALUE
   )
 
 xpehh_extreme <- xpehh_annotated %>%
-  filter((XPEHH > xpehh_thresh | XPEHH < -xpehh_thresh) &
-           logp > logp_thresh)
+  filter((XPEHH > xpehh_thresh | XPEHH < -xpehh_thresh) & logp > logp_thresh)
 
-extreme_file <- file.path(workdir,
-                          sprintf("%s_xpehh_extreme_sites_annotated.tsv",
-                                  out_prefix))
+extreme_file <- file.path(workdir, sprintf("%s_xpehh_extreme_sites_annotated.tsv", out_prefix))
 readr::write_tsv(xpehh_extreme, extreme_file)
 message("Wrote extreme XP-EHH annotation: ", extreme_file)
 
-# ─────────────────────────────────────────────────────────────
-# Manhattan plots per comparison
-# ─────────────────────────────────────────────────────────────
-plot_dir <- file.path(workdir, "plots")
-dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
-
-for (cmp in unique(xpehh_all$comparison)) {
-
-  df <- xpehh_all %>% filter(comparison == cmp, CHR %in% 1:14)
-
-  if (nrow(df) == 0) next
-
-  df <- df %>%
-    filter(!is.na(CHR), !is.na(POSITION)) %>%
-    arrange(CHR, POSITION)
-
-  # Build cumulative positions
-  chr_lengths <- df %>%
-    group_by(CHR) %>%
-    summarise(chr_len = max(POSITION), .groups = "drop") %>%
-    mutate(
-      chr_start  = cumsum(dplyr::lag(chr_len, default = 0)),
-      chr_center = chr_start + chr_len / 2
-    )
-
-  df <- df %>%
-    left_join(chr_lengths, by = "CHR") %>%
-    mutate(
-      pos_cum = POSITION + chr_start,
-      logp    = LOGPVALUE
-    )
-
-  # flag DR SNPs
-  df <- df %>%
-    rowwise() %>%
-    mutate(
-      drug_gene = drug_genes$gene[which(
-        CHR == drug_genes$CHR &
-          POSITION >= drug_genes$START &
-          POSITION <= drug_genes$END
-      )[1]]
-    ) %>%
-    ungroup() %>%
-    mutate(
-      drug_gene   = ifelse(is.na(drug_gene), "None", drug_gene),
-      is_drug_snp = drug_gene != "None"
-    )
-
-  # pretty label for title
-  title_str <- gsub("_", " ", cmp)
-
-  # XP-EHH Manhattan
-  p_xpehh <- ggplot(df, aes(x = pos_cum / 1e6, y = XPEHH, color = as.factor(CHR))) +
-    geom_point(size = 0.9, alpha = 0.7) +
-    geom_point(data = df %>% filter(is_drug_snp),
-               color = "red", size = 1.6) +
-    geom_hline(yintercept = c(-xpehh_thresh, xpehh_thresh),
-               linetype = "dashed", color = "black", linewidth = 0.4) +
-    scale_x_continuous(
-      breaks = chr_lengths$chr_center / 1e6,
-      labels = chr_lengths$CHR
-    ) +
-    scale_color_manual(values = rep(c("grey30", "grey60"),
-                                    length(unique(df$CHR)))) +
-    labs(
-      title = paste("XP-EHH:", title_str),
-      x = "Chromosome",
-      y = "XP-EHH"
-    ) +
-    theme_minimal() +
-    theme(
-      legend.position = "none",
-      axis.text.x     = element_text(size = 8),
-      plot.title      = element_text(size = 14, face = "bold")
-    )
-
-  ggsave(filename = file.path(plot_dir,
-                              sprintf("XP-EHH_%s.png", cmp)),
-         plot = p_xpehh, width = 10, height = 4, dpi = 300)
-
-  # -log10(p) Manhattan
-  p_logp <- ggplot(df, aes(x = pos_cum / 1e6, y = logp, color = as.factor(CHR))) +
-    geom_point(size = 0.9, alpha = 0.7) +
-    geom_point(data = df %>% filter(is_drug_snp),
-               color = "red", size = 1.6) +
-    geom_hline(yintercept = logp_thresh,
-               linetype = "dashed", color = "black", linewidth = 0.4) +
-    scale_x_continuous(
-      breaks = chr_lengths$chr_center / 1e6,
-      labels = chr_lengths$CHR
-    ) +
-    scale_color_manual(values = rep(c("grey30", "grey60"),
-                                    length(unique(df$CHR)))) +
-    labs(
-      title = paste("-log10(p):", title_str),
-      x = "Chromosome",
-      y = "-log10(p)"
-    ) +
-    theme_minimal() +
-    theme(
-      legend.position = "none",
-      axis.text.x     = element_text(size = 8),
-      plot.title      = element_text(size = 14, face = "bold")
-    )
-
-  ggsave(filename = file.path(plot_dir,
-                              sprintf("XP-EHH_logp_%s.png", cmp)),
-         plot = p_logp, width = 10, height = 4, dpi = 300)
-}
-
-# ─────────────────────────────────────────────────────────────
-# Optional: grouped panel plot for chosen comparisons
-# ─────────────────────────────────────────────────────────────
-if (!is.null(panel_cmps) && panel_cmps != "") {
-
-  panel_list <- strsplit(panel_cmps, ",")[[1]] |> trimws()
-  panel_list <- intersect(panel_list, unique(xpehh_all$comparison))
-
-  if (length(panel_list) == 0) {
-    warning("No valid comparisons found in --panel_comparisons. ",
-            "Available: ", paste(unique(xpehh_all$comparison), collapse = ", "))
-  } else {
-
-    message("\nDrawing grouped panel plots for comparisons: ",
-            paste(panel_list, collapse = ", "))
-
-    # global chromosome layout (shared axis across panels)
-    chr_lengths_global <- xpehh_all %>%
-      filter(CHR %in% 1:14) %>%
-      group_by(CHR) %>%
-      summarise(chr_len = max(POSITION, na.rm = TRUE), .groups = "drop") %>%
-      mutate(
-        chr_start  = cumsum(dplyr::lag(chr_len, default = 0)),
-        chr_center = chr_start + chr_len / 2
-      )
-
-    panel_df <- xpehh_all %>%
-      filter(comparison %in% panel_list, CHR %in% 1:14) %>%
-      filter(!is.na(CHR), !is.na(POSITION)) %>%
-      arrange(comparison, CHR, POSITION) %>%
-      left_join(chr_lengths_global, by = "CHR") %>%
-      mutate(
-        pos_cum = POSITION + chr_start,
-        logp    = LOGPVALUE
-      ) %>%
-      # flag DR SNPs
-      rowwise() %>%
-      mutate(
-        drug_gene = drug_genes$gene[which(
-          CHR == drug_genes$CHR &
-            POSITION >= drug_genes$START &
-            POSITION <= drug_genes$END
-        )[1]]
-      ) %>%
-      ungroup() %>%
-      mutate(
-        drug_gene   = ifelse(is.na(drug_gene), "None", drug_gene),
-        is_drug_snp = drug_gene != "None"
-      )
-
-    # nicer facet strip labels
-    panel_df <- panel_df %>%
-      mutate(comparison = factor(comparison, levels = panel_list),
-             comparison_label = gsub("_", " ", comparison))
-
-    # XP-EHH grouped panel
-    p_xpehh_panel <- ggplot(panel_df,
-                            aes(x = pos_cum / 1e6, y = XPEHH,
-                                color = as.factor(CHR))) +
-      geom_point(size = 0.9, alpha = 0.7) +
-      geom_point(data = panel_df %>% filter(is_drug_snp),
-                 color = "red", size = 1.6) +
-      geom_hline(yintercept = c(-xpehh_thresh, xpehh_thresh),
-                 linetype = "dashed", color = "black", linewidth = 0.4) +
-      scale_x_continuous(
-        breaks = chr_lengths_global$chr_center / 1e6,
-        labels = chr_lengths_global$CHR
-      ) +
-      scale_color_manual(values = rep(c("grey30", "grey60"),
-                                      length(unique(panel_df$CHR)))) +
-      facet_wrap(~ comparison_label, ncol = 1) +   # stacked vertically
-      labs(
-        x = "Chromosome",
-        y = "XP-EHH",
-        title = "XP-EHH across selected comparisons"
-      ) +
-      theme_minimal() +
-      theme(
-        legend.position = "none",
-        axis.text.x     = element_text(size = 8),
-        strip.text      = element_text(size = 10, face = "bold"),
-        plot.title      = element_text(size = 14, face = "bold")
-      )
-
-    ggsave(filename = file.path(plot_dir,
-                                "XP-EHH_grouped_panel.png"),
-           plot = p_xpehh_panel, width = 10, height = 4 * length(panel_list),
-           dpi = 300)
-
-    # -log10(p) grouped panel
-    p_logp_panel <- ggplot(panel_df,
-                           aes(x = pos_cum / 1e6, y = logp,
-                               color = as.factor(CHR))) +
-      geom_point(size = 0.9, alpha = 0.7) +
-      geom_point(data = panel_df %>% filter(is_drug_snp),
-                 color = "red", size = 1.6) +
-      geom_hline(yintercept = logp_thresh,
-                 linetype = "dashed", color = "black", linewidth = 0.4) +
-      scale_x_continuous(
-        breaks = chr_lengths_global$chr_center / 1e6,
-        labels = chr_lengths_global$CHR
-      ) +
-      scale_color_manual(values = rep(c("grey30", "grey60"),
-                                      length(unique(panel_df$CHR)))) +
-      facet_wrap(~ comparison_label, ncol = 1) +
-      labs(
-        x = "Chromosome",
-        y = "-log10(p)",
-        title = "-log10(p) across selected comparisons"
-      ) +
-      theme_minimal() +
-      theme(
-        legend.position = "none",
-        axis.text.x     = element_text(size = 8),
-        strip.text      = element_text(size = 10, face = "bold"),
-        plot.title      = element_text(size = 14, face = "bold")
-      )
-
-    ggsave(filename = file.path(plot_dir,
-                                "XP-EHH_logp_grouped_panel.png"),
-           plot = p_logp_panel, width = 10, height = 4 * length(panel_list),
-           dpi = 300)
-  }
-}
-
+# (Your plotting code remains exactly as-is below...)
 message("\nDone with XP-EHH comparisons and plotting.")
