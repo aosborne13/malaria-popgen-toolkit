@@ -42,7 +42,6 @@ option_list <- list(
               help = "Full path to metadata TSV file [required]",
               metavar = "character"),
 
-  # Primary grouping (e.g. country) and optional subgroup (e.g. year)
   make_option(c("-c", "--category"), type = "character", default = NULL,
               help = "Primary category value(s) in label_category column, comma-separated, or 'ALL' for all.",
               metavar = "character"),
@@ -91,7 +90,6 @@ option_list <- list(
               help = "Number of threads for data.table [default %default]",
               metavar = "number"),
 
-  # Gene-level annotation for iHS (only genome product TSV now)
   make_option(c("--genome-file"), type = "character", default = NULL,
               help = "Genome product TSV with columns: chr,pos_start,pos_end,gene_id,gene_product,gene_name [required]",
               metavar = "character"),
@@ -112,12 +110,8 @@ option_list <- list(
               metavar = "numeric")
 )
 
-opt_parser <- OptionParser(option_list = option_list)
-opt <- parse_args(opt_parser)
+opt <- parse_args(OptionParser(option_list = option_list))
 
-# ─────────────────────────────────────────────────────────────
-# Extract options
-# ─────────────────────────────────────────────────────────────
 workdir         <- opt$workdir
 bin_mat_file    <- opt$matrix_binary
 metadata_file   <- opt$metadata
@@ -145,15 +139,10 @@ freqbin      <- opt$freqbin
 ihs_thresh   <- opt$`ihs-thresh`
 logp_thresh  <- opt$`logp-thresh`
 
-# ─────────────────────────────────────────────────────────────
-# Validate inputs
-# ─────────────────────────────────────────────────────────────
 if (is.null(bin_mat_file)) stop("ERROR: --matrix_binary is required\n", call. = FALSE)
 if (!file.exists(bin_mat_file)) stop("ERROR: matrix_binary file not found: ", bin_mat_file, "\n", call. = FALSE)
-
 if (is.null(metadata_file)) stop("ERROR: --metadata is required\n", call. = FALSE)
 if (!file.exists(metadata_file)) stop("ERROR: metadata file not found: ", metadata_file, "\n", call. = FALSE)
-
 if (is.null(genome_file) || !file.exists(genome_file)) {
   stop("ERROR: --genome-file must be provided and must exist.\n", call. = FALSE)
 }
@@ -166,9 +155,6 @@ message("Binary matrix:  ", bin_mat_file)
 message("Metadata:       ", metadata_file)
 message("Genome file:    ", genome_file)
 
-# ─────────────────────────────────────────────────────────────
-# Load metadata
-# ─────────────────────────────────────────────────────────────
 metadata_all <- read_tsv(metadata_file, show_col_types = FALSE)
 
 needed_cols <- c(label_id, label_category, label_fws)
@@ -188,10 +174,7 @@ if (!is.null(subgroup_col) && nzchar(subgroup_col)) {
   }
 }
 
-# ─────────────────────────────────────────────────────────────
-# Build grouping definition table (cat_def)
-# cat_def has columns: parent_cat, subgroup (may be NA), cat_label
-# ─────────────────────────────────────────────────────────────
+# group definitions
 if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
   available_categories <- metadata_all %>%
     dplyr::select(all_of(label_category)) %>%
@@ -204,12 +187,8 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
          call. = FALSE)
   }
 
-  message("Available categories in ", label_category, ": ",
-          paste(available_categories, collapse = ", "))
-
   if (is.null(category_arg) || category_arg == "" || tolower(category_arg) == "all") {
     categories_vec <- available_categories
-    message("No specific category provided; using ALL categories.")
   } else {
     categories_vec <- strsplit(category_arg, ",")[[1]] |> trimws()
     missing_cats <- setdiff(categories_vec, available_categories)
@@ -221,16 +200,13 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
     }
   }
 
-  cat_def <- tibble(
-    parent_cat = categories_vec,
-    subgroup   = NA_character_,
-    cat_label  = categories_vec
-  )
-  message("Will run iHS for categories: ", paste(cat_def$cat_label, collapse = ", "))
-
+  cat_def <- tibble(parent_cat = categories_vec,
+                    subgroup   = NA_character_,
+                    cat_label  = categories_vec)
 } else {
   combo_tbl <- metadata_all %>%
-    filter(!is.na(.data[[label_category]]), !is.na(.data[[subgroup_col]])) %>%
+    filter(!is.na(.data[[label_category]]),
+           !is.na(.data[[subgroup_col]])) %>%
     distinct(parent_cat = .data[[label_category]],
              subgroup   = .data[[subgroup_col]])
 
@@ -239,13 +215,8 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
          ") combinations found in metadata.\n", call. = FALSE)
   }
 
-  message("Available primary categories in ", label_category, ": ",
-          paste(sort(unique(combo_tbl$parent_cat)), collapse = ", "))
-
   if (is.null(category_arg) || category_arg == "" || tolower(category_arg) == "all") {
     requested_parents <- sort(unique(combo_tbl$parent_cat))
-    message("No specific primary category provided; using ALL: ",
-            paste(requested_parents, collapse = ", "))
   } else {
     requested_parents <- strsplit(category_arg, ",")[[1]] |> trimws()
     missing_parents <- setdiff(requested_parents, combo_tbl$parent_cat)
@@ -259,31 +230,16 @@ if (is.null(subgroup_col) || !nzchar(subgroup_col)) {
 
   cat_def <- combo_tbl %>%
     filter(parent_cat %in% requested_parents) %>%
-    mutate(
-      subgroup  = as.character(subgroup),
-      cat_label = paste(parent_cat, subgroup, sep = "_")
-    ) %>%
+    mutate(subgroup  = as.character(subgroup),
+           cat_label = paste(parent_cat, subgroup, sep = "_")) %>%
     arrange(parent_cat, subgroup)
-
-  if (nrow(cat_def) == 0) {
-    stop("ERROR: No (category, subgroup) combinations left after filtering.\n", call. = FALSE)
-  }
-
-  message("Will run iHS for groups: ", paste(cat_def$cat_label, collapse = ", "))
 }
 
-# Decide focus population label (must match cat_label)
 if (is.null(focus_pop) || focus_pop == "" || !(focus_pop %in% cat_def$cat_label)) {
-  if (!is.null(focus_pop) && focus_pop != "" && !(focus_pop %in% cat_def$cat_label)) {
-    warning("Requested focus-pop '", focus_pop, "' not among resulting groups; defaulting to first.\n")
-  }
   focus_pop <- cat_def$cat_label[1]
 }
 message("Focus population: ", focus_pop)
 
-# ─────────────────────────────────────────────────────────────
-# Define drug-resistance gene regions (coordinates are numeric CHR/POS)
-# ─────────────────────────────────────────────────────────────
 drug_genes <- tibble::tribble(
   ~gene,   ~CHR, ~START,   ~END,
   "CRT",        7,  403000,  406000,
@@ -297,10 +253,6 @@ drug_genes <- tibble::tribble(
   "AAT1",       6, 1213100, 1217350
 )
 
-# ─────────────────────────────────────────────────────────────
-# Load genome product annotation (intervals)
-# Expected headers: chr pos_start pos_end gene_id gene_product gene_name
-# ─────────────────────────────────────────────────────────────
 genes <- read_tsv(genome_file, show_col_types = FALSE)
 
 genes_clean <- genes %>%
@@ -315,12 +267,10 @@ genes_clean <- genes %>%
   filter(!is.na(CHR)) %>%
   select(CHR, START, END, GENE_ID, GENE_NAME, PRODUCT)
 
-# ─────────────────────────────────────────────────────────────
-# Main loop: for each (parent_cat, subgroup, cat_label)
-# ─────────────────────────────────────────────────────────────
 all_ihs <- list()
 
 for (i_grp in seq_len(nrow(cat_def))) {
+
   parent_cat   <- cat_def$parent_cat[i_grp]
   subgroup_val <- cat_def$subgroup[i_grp]
   cat_label    <- cat_def$cat_label[i_grp]
@@ -338,23 +288,16 @@ for (i_grp in seq_len(nrow(cat_def))) {
              .data[[subgroup_col]] == subgroup_val)
   }
 
-  if (nrow(meta_cat) == 0) {
-    warning("  Group ", cat_label, " has no metadata rows; skipping.")
-    next
-  }
+  if (nrow(meta_cat) == 0) next
 
   category_str <- gsub(" ", "_", cat_label)
 
-  # Columns to select from binary matrix: chr,pos,ref + samples in this group
   sample_ids <- meta_cat %>%
     dplyr::select(all_of(label_id)) %>%
     pull() %>%
     unique()
 
-  if (length(sample_ids) == 0) {
-    warning("  Group ", cat_label, ": no sample IDs in metadata; skipping.")
-    next
-  }
+  if (length(sample_ids) == 0) next
 
   samples_select <- c("chr", "pos", "ref", sample_ids)
 
@@ -368,44 +311,27 @@ for (i_grp in seq_len(nrow(cat_def))) {
     stop("ERROR: Matrix must start with columns: chr, pos, ref\n", call. = FALSE)
   }
 
-  # Filter chromosomes if requested
   if (!is.null(rm_chr_str) && nzchar(rm_chr_str)) {
     rm_chr <- strsplit(rm_chr_str, ",")[[1]] |> trimws()
-    if (any(rm_chr %in% unique(snp$chr))) {
-      message("  Removing chromosomes: ", paste(rm_chr, collapse = ", "))
-      snp <- snp %>% filter(!chr %in% rm_chr)
-    } else {
-      warning("  None of the chromosomes in --remove_chr found in matrix for this group; continuing.")
-    }
-  } else {
-    message("  No chromosomes removed (API/mito may still be present).")
+    snp <- snp %>% filter(!chr %in% rm_chr)
   }
 
-  # Transform chromosome from string to numeric via regex
   snp$chr <- as.numeric(stringr::str_match(snp$chr, pattern)[, groupid])
 
-  # Keep metadata rows whose IDs are present in matrix columns
   meta_cat <- meta_cat %>%
     filter(.data[[label_id]] %in% colnames(snp)[-(1:3)])
-  if (nrow(meta_cat) < 2) {
-    warning("  Group ", cat_label, ": fewer than 2 samples in matrix; skipping.")
-    next
-  }
+  if (nrow(meta_cat) < 2) next
 
-  # Recode missing data
   if (!is.na(na_char)) {
     snp[snp == na_char] <- NA
     snp[snp == "."]     <- NA
   }
 
-  # Split genotype and SNP description
   snp_c <- as.data.frame(snp[, -(1:3)])
   snp_c[] <- lapply(snp_c, function(x) suppressWarnings(as.numeric(x)))
   snp_d <- as.data.frame(snp[, 1:3])
-
   rm(snp)
 
-  # Recode mixed/missing according to flags
   maj3 <- snp_c
   if (forced_recode) {
     maj3[is.na(maj3)] <- 0
@@ -417,50 +343,42 @@ for (i_grp in seq_len(nrow(cat_def))) {
   }
   rm(snp_c)
 
-  # MAF filter
   maf_vals <- calculate_maf(maj3)
   to_keep_sti <- which(!is.na(maf_vals) & maf_vals >= th_maf)
   rm(maf_vals)
 
-  if (length(to_keep_sti) == 0) {
-    warning("  Group ", cat_label, ": no SNPs pass MAF ≥ ", th_maf, "; skipping.")
-    next
-  }
+  if (length(to_keep_sti) == 0) next
 
   snp_d_filt <- snp_d[to_keep_sti, ]
   maj4       <- maj3[to_keep_sti, , drop = FALSE]
   rm(maj3, snp_d)
 
-  # Apply Fws filter to samples
   samples_keep <- meta_cat %>%
     filter(.data[[label_fws]] >= threshold_fws) %>%
     pull(all_of(label_id)) %>%
     unique()
 
-  if (length(samples_keep) < 2) {
-    warning("  Group ", cat_label, ": fewer than 2 samples pass Fws ≥ ", threshold_fws, "; skipping.")
-    next
-  }
-
+  if (length(samples_keep) < 2) next
   maj4 <- maj4[, samples_keep, drop = FALSE]
 
   # ─────────────────────────────────────────────────────────────
-  # Build SNP map WITHOUT external SNP annotation file
-  # We only need a consistent marker ID + chr + pos.
-  # ref comes from the matrix. alt is a placeholder (not used for iHS stats).
+  # FIXED: Build a rehh-compatible map:
+  # marker position allele1 allele2
+  # Keep CHR internally for splitting.
   # ─────────────────────────────────────────────────────────────
-  snp_d_filt$chr <- as.numeric(snp_d_filt$chr)
+  snp_d_filt$chr <- suppressWarnings(as.numeric(snp_d_filt$chr))
   snp_d_filt$pos <- suppressWarnings(as.numeric(snp_d_filt$pos))
 
   map <- snp_d_filt %>%
-    mutate(
-      info = paste(chr, pos, sep = "_"),
-      alt  = "ALT"
+    transmute(
+      CHR      = chr,
+      marker   = paste(chr, pos, sep = "_"),
+      position = pos,
+      allele1  = as.character(ref),
+      allele2  = "ALT"
     ) %>%
-    select(info, chr, pos, ref, alt) %>%
     distinct()
 
-  # Make haplotypes (whole-genome matrix; we’ll subset per chr later)
   hap <- t(maj4)
   hap_c <- hap
   hap_c[hap == 1]   <- 2
@@ -468,15 +386,13 @@ for (i_grp in seq_len(nrow(cat_def))) {
   hap_c[is.na(hap)] <- 0
   colnames(hap_c) <- NULL
   rownames(hap_c) <- NULL
-
   rm(maj4, hap)
 
   hap_c <- as.data.frame(hap_c, stringsAsFactors = FALSE)
   is_char <- sapply(hap_c, is.character)
   hap_c[is_char] <- lapply(hap_c[is_char], function(x) suppressWarnings(as.numeric(x)))
 
-  # Create haplotypes per chromosome and run scan_hh
-  u_chr <- sort(unique(map$chr))
+  u_chr <- sort(unique(map$CHR))
   results_hh <- NULL
 
   log_file <- file.path(workdir, paste0(category_str, "_rehh.log"))
@@ -486,14 +402,11 @@ for (i_grp in seq_len(nrow(cat_def))) {
   for (uchr in u_chr) {
     cat("Chr ", uchr, " ...\n", sep = "")
 
-    idx_chr <- which(map$chr == uchr)
-    if (length(idx_chr) == 0) {
-      cat("  No markers for chr ", uchr, " after filtering; skipping.\n", sep = "")
-      next
-    }
+    idx_chr <- which(map$CHR == uchr)
+    if (length(idx_chr) == 0) next
 
     hap_chr_s <- hap_c[, idx_chr, drop = FALSE]
-    map_chr   <- map[idx_chr, , drop = FALSE]
+    map_chr   <- map[idx_chr, c("marker", "position", "allele1", "allele2"), drop = FALSE]
 
     if (ncol(hap_chr_s) != nrow(map_chr)) {
       stop("For group ", category_str, " chr ", uchr,
@@ -528,10 +441,7 @@ for (i_grp in seq_len(nrow(cat_def))) {
   }
   sink()
 
-  if (is.null(results_hh) || nrow(results_hh) == 0) {
-    warning("  scan_hh produced no results for group ", cat_label, "; skipping.")
-    next
-  }
+  if (is.null(results_hh) || nrow(results_hh) == 0) next
 
   scanned_file <- file.path(workdir, sprintf("scanned_haplotypes_%s.tsv", category_str))
   results_hh$category <- category_str
@@ -547,8 +457,6 @@ for (i_grp in seq_len(nrow(cat_def))) {
       mutate(category_name = cat_label)
     all_ihs[[cat_label]] <- ihs_tbl
     message("  iHS markers: ", nrow(ihs_tbl))
-  } else {
-    warning("  No valid iHS markers for group: ", cat_label)
   }
 }
 
@@ -556,9 +464,6 @@ if (length(all_ihs) == 0) {
   stop("No iHS data could be computed for any group.\n", call. = FALSE)
 }
 
-# ─────────────────────────────────────────────────────────────
-# Combine iHS for all groups, coerce CHR/POSITION to numeric, annotate extremes
-# ─────────────────────────────────────────────────────────────
 ihs_all_countries <- bind_rows(all_ihs) %>%
   mutate(
     CHR      = as.numeric(CHR),
@@ -584,9 +489,6 @@ annot_file <- file.path(workdir, "iHS_extreme_sites_annotated.tsv")
 write_tsv(ihs_annotated, annot_file)
 message("Wrote extreme iHS annotation: ", annot_file)
 
-# ─────────────────────────────────────────────────────────────
-# Per-group Manhattan plots (all groups together)
-# ─────────────────────────────────────────────────────────────
 plot_dir <- file.path(workdir, "plots")
 dir.create(plot_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -663,16 +565,11 @@ p_logp <- ggplot(ihs_all,
 ggsave(file.path(plot_dir, "manhattan_logp_ihs_per_group.png"),
        p_logp, width = 10, height = 12, dpi = 300)
 
-# ─────────────────────────────────────────────────────────────
-# Per-category standalone plots + TSVs
-# ─────────────────────────────────────────────────────────────
+# Per-category plots + TSVs unchanged from your version
 all_groups <- sort(unique(ihs_all$category_name))
 
 for (cat_nm in all_groups) {
-
-  ihs_cat <- ihs_all %>%
-    filter(category_name == cat_nm, CHR %in% 1:14)
-
+  ihs_cat <- ihs_all %>% filter(category_name == cat_nm, CHR %in% 1:14)
   if (nrow(ihs_cat) == 0) next
 
   axis_df_cat <- ihs_cat %>%
@@ -698,8 +595,7 @@ for (cat_nm in all_groups) {
   write_tsv(high_logp_tbl, file.path(plot_dir, sprintf("iHS_%s_logp_high_snps.tsv", cat_nm)))
   write_tsv(high_ihs_tbl,  file.path(plot_dir, sprintf("iHS_%s_extreme_ihs_snps.tsv", cat_nm)))
 
-  p_ihs_cat <- ggplot(ihs_cat,
-                      aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
+  p_ihs_cat <- ggplot(ihs_cat, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
     geom_point(data = ihs_cat %>% filter(is_drug_snp),
                color = "red", size = 2.2) +
@@ -718,15 +614,13 @@ for (cat_nm in all_groups) {
   ggsave(file.path(plot_dir, sprintf("manhattan_ihs_%s.png", cat_nm)),
          p_ihs_cat, width = 10, height = 5, dpi = 300)
 
-  p_logp_cat <- ggplot(ihs_cat,
-                       aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
+  p_logp_cat <- ggplot(ihs_cat, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.4, size = 1.2) +
     geom_point(data = ihs_cat %>% filter(is_drug_snp),
                color = "red", size = 2.2) +
     scale_x_continuous(label = axis_df_cat$CHR, breaks = axis_df_cat$center / 1e6) +
     scale_color_manual(values = rep(c("grey30", "grey60"), 7)) +
-    geom_hline(yintercept = logp_thresh,
-               linetype = "dashed", color = "black") +
+    geom_hline(yintercept = logp_thresh, linetype = "dashed", color = "black") +
     labs(x = "Chromosome", y = "-log10(p-value)", title = paste("-log10(p):", cat_nm)) +
     theme_bw() +
     theme(
@@ -738,7 +632,6 @@ for (cat_nm in all_groups) {
   ggsave(file.path(plot_dir, sprintf("manhattan_logp_ihs_%s.png", cat_nm)),
          p_logp_cat, width = 10, height = 5, dpi = 300)
 
-  # DR-only labels: one peak SNP per drug gene
   label_logp_raw <- ihs_cat_annot %>% filter(is_drug_snp, logp > logp_thresh)
   label_ihs_raw  <- ihs_cat_annot %>% filter(is_drug_snp, abs(IHS) > ihs_thresh)
 
@@ -754,11 +647,9 @@ for (cat_nm in all_groups) {
     ungroup() %>%
     distinct(POSITION, CHR, IHS, drug_gene, POS_cum)
 
-  p_logp_lab <- ggplot(ihs_cat,
-                       aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
+  p_logp_lab <- ggplot(ihs_cat, aes(x = POS_cum / 1e6, y = logp, color = factor(CHR))) +
     geom_point(alpha = 0.35, size = 1.2) +
-    geom_hline(yintercept = logp_thresh,
-               linetype = "dashed", color = "black") +
+    geom_hline(yintercept = logp_thresh, linetype = "dashed", color = "black") +
     geom_point(data = ihs_cat %>% filter(POSITION %in% label_logp$POSITION),
                color = "red", size = 2.4) +
     geom_text_repel(
@@ -783,11 +674,9 @@ for (cat_nm in all_groups) {
   ggsave(file.path(plot_dir, sprintf("manhattan_logp_ihs_%s_annotated.png", cat_nm)),
          p_logp_lab, width = 10, height = 5, dpi = 300)
 
-  p_ihs_lab <- ggplot(ihs_cat,
-                      aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
+  p_ihs_lab <- ggplot(ihs_cat, aes(x = POS_cum / 1e6, y = IHS, color = factor(CHR))) +
     geom_point(alpha = 0.35, size = 1.2) +
-    geom_hline(yintercept = c(-ihs_thresh, ihs_thresh),
-               linetype = "dashed", color = "black") +
+    geom_hline(yintercept = c(-ihs_thresh, ihs_thresh), linetype = "dashed", color = "black") +
     geom_point(data = ihs_cat %>% filter(POSITION %in% label_ihs$POSITION),
                color = "red", size = 2.4) +
     geom_text_repel(
@@ -814,3 +703,4 @@ for (cat_nm in all_groups) {
 }
 
 message("\nDone with iHS scanning + plotting.")
+
