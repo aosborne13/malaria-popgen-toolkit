@@ -35,10 +35,11 @@ def run(
     Run iHS selection scan using rehh from a binary SNP matrix.
 
     NOTE:
-      - SNP-level annotation input has been removed.
-      - The R script builds the marker map directly from matrix columns (chr/pos/ref).
-      - Gene interval mapping uses the genome product TSV (--genome-file).
+      - SNP-level annotation file (--annotation) is not used.
+      - The R script builds the marker map directly from the matrix (chr/pos/ref).
+      - genome_file is the genome product TSV used for interval-to-gene mapping.
     """
+
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
@@ -87,20 +88,16 @@ def run(
 
     if category:
         cmd += ["--category", str(category)]
-
     if subgroup_col:
         cmd += ["--subgroup_col", str(subgroup_col)]
-
     if focus_pop:
         cmd += ["--focus-pop", str(focus_pop)]
-
     if remove_chr:
         cmd += ["--remove_chr", str(remove_chr)]
-
     if forced_recode:
         cmd.append("--forced_recode")
-
     if forced_mixed:
         cmd.append("--forced_mixed")
 
     subprocess.run(cmd, check=True)
+
