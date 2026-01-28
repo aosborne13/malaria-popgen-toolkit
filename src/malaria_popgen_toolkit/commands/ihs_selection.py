@@ -1,5 +1,7 @@
 # malaria_popgen_toolkit/commands/ihs_selection.py
 
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 
@@ -36,16 +38,37 @@ def run(
 
     NOTE:
       - The SNP-level annotation file (--annotation) has been removed.
-      - The R script now constructs the marker map directly from the matrix
+      - The R script constructs the marker map directly from the matrix
         (chr/pos/ref) and uses the genome product TSV for gene interval mapping.
-    """
 
+    Inputs are still file paths:
+      - matrix_binary (binary SNP matrix TSV)
+      - metadata_path (metadata TSV)
+      - genome_file (genome product TSV)
+    """
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
+    matrix_binary = Path(matrix_binary)
+    metadata_path = Path(metadata_path)
+    genome_file = Path(genome_file)
+
+    # Fail fast with clear errors (helps debugging cache/species resolution)
+    for pth, label in (
+        (matrix_binary, "matrix_binary"),
+        (metadata_path, "metadata_path"),
+        (genome_file, "genome_file"),
+    ):
+        if not pth.exists():
+            raise FileNotFoundError(f"{label} not found: {pth}")
+
+    r_script = Path(__file__).parents[2] / "scripts/selection/ihs_full_pipeline.R"
+    if not r_script.exists():
+        raise FileNotFoundError(f"R script not found: {r_script}")
+
     cmd = [
         "Rscript",
-        str(Path(__file__).parents[2] / "scripts/selection/ihs_full_pipeline.R"),
+        str(r_script),
         "--workdir",
         str(workdir),
         "--matrix_binary",
