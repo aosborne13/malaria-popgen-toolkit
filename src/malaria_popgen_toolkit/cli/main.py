@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from pathlib import Path
 
 from malaria_popgen_toolkit.commands import (
     dataset_stats,
@@ -43,12 +44,26 @@ from malaria_popgen_toolkit.commands import (
     pca_plot,
     xpehh_selection,
 )
-from malaria_popgen_toolkit.resources.resolver import resolve_species
+
+# Resolver lives in malaria_popgen_toolkit/resources/resolver.py
+# and uses resources/manifest.json keys like Pf3D7_fasta, Pf3D7_fai, Pf3D7_gff3, Pf3D7_gene_product
+from malaria_popgen_toolkit.resources.resolver import resolve  # type: ignore
 
 
 def require_tool(name: str) -> None:
     if shutil.which(name) is None:
         sys.exit(f"ERROR: Required tool '{name}' not found in PATH.")
+
+
+def _resolve_ref(species: str, kind: str) -> str:
+    """
+    Resolve a reference asset path using the resources resolver.
+
+    kind ∈ {"fasta", "fai", "gff3", "gene_product"}
+    """
+    key = f"{species}_{kind}"
+    p = resolve(key)  # expected to download/cache and return a local path (str or Path)
+    return str(p)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -66,10 +81,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compute missense allele frequencies in drug-resistance genes",
     )
     p.add_argument("--vcf", required=True)
-    p.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
-    # Optional overrides (advanced users)
-    p.add_argument("--ref", default=None, help="Optional override: reference FASTA path")
-    p.add_argument("--gff3", default=None, help="Optional override: GFF3 path")
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    # Optional overrides (if provided, they win over resolver)
+    p.add_argument("--ref", default=None, help="Override reference FASTA path")
+    p.add_argument("--gff3", default=None, help="Override GFF3 annotation path")
     p.add_argument("--metadata", required=True)
     p.add_argument("--outdir", default="missense_af")
     p.add_argument("--min-dp", type=int, default=5)
@@ -203,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--regex-group",
         type=int,
-       default=3,
+        default=3,
         help="Capture group index in regex_chr that contains numeric chromosome",
     )
 
@@ -214,62 +233,45 @@ def build_parser() -> argparse.ArgumentParser:
         "hmmibd-summary",
         help="Summarise hmmIBD output into sliding windows and annotate genes",
     )
+    p.add_argument("--workdir", required=True)
     p.add_argument(
-        "--workdir",
-        required=True,
-        help="Directory with hmmIBD outputs and ibd_matrix_hap_leg.tsv",
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
     )
-    p.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
-    # Optional overrides (advanced users)
-    p.add_argument("--ref_index", default=None, help="Optional override: reference FASTA .fai path")
-    p.add_argument(
-        "--gene_product",
-        default=None,
-        help="Optional override: genome product TSV annotation (pf_genome_product_v3.tsv)",
-    )
-    p.add_argument("--suffix", required=True, help="Prefix for output files (e.g. 10_12_2025)")
+    # Optional overrides (if provided, they win)
+    p.add_argument("--ref_index", default=None, help="Override FASTA .fai path")
+    p.add_argument("--gene_product", default=None, help="Override genome product TSV path")
+    p.add_argument("--suffix", required=True)
     p.add_argument("--window_size", type=int, default=50000)
     p.add_argument("--maf", type=float, default=0.01)
     p.add_argument("--quantile_cutoff", type=float, default=0.95)
-    p.add_argument(
-        "--remove_chr",
-        default="Pf3D7_API_v3,Pf3D7_MIT_v3",
-        help="Comma-separated list of chromosomes to drop",
-    )
+    p.add_argument("--remove_chr", default="Pf3D7_API_v3,Pf3D7_MIT_v3")
     p.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
     p.add_argument("--regex_groupid", type=int, default=3)
 
     # ------------------------------------------------------------------
     # hmmIBD plots (boxplot, genome-wide, chromosome painting)
     # ------------------------------------------------------------------
-    p_plot = sub.add_parser(
-        "hmmibd-ibdplots",
-        help="Generate IBD plots from summarised hmmIBD windows",
-    )
+    p_plot = sub.add_parser("hmmibd-ibdplots", help="Generate IBD plots from summarised hmmIBD windows")
     p_alias = sub.add_parser("hmmibd-ibdplot", help=argparse.SUPPRESS)
 
     def _add_hmmibd_plot_args(pp: argparse.ArgumentParser) -> None:
         pp.add_argument("--workdir", required=True)
-        pp.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
-        # Optional overrides (advanced users)
-        pp.add_argument("--ref_index", default=None, help="Optional override: reference FASTA .fai path")
-        pp.add_argument("--gene_product", default=None, help="Optional override: gene product TSV")
+        pp.add_argument(
+            "--species",
+            default="Pf3D7",
+            help="Species/reference bundle ID to fetch (default: Pf3D7)",
+        )
+        pp.add_argument("--ref_index", default=None, help="Override FASTA .fai path")
+        pp.add_argument("--gene_product", default=None, help="Override genome product TSV path")
         pp.add_argument("--suffix", required=True)
         pp.add_argument("--window_size", type=int, default=50000)
         pp.add_argument("--quantile_cutoff", type=float, default=0.95)
-        pp.add_argument(
-            "--remove_chr",
-            default="Pf3D7_API_v3,Pf3D7_MIT_v3",
-            help="Comma-separated chromosomes to remove",
-        )
+        pp.add_argument("--remove_chr", default="Pf3D7_API_v3,Pf3D7_MIT_v3")
         pp.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
         pp.add_argument("--regex_groupid", type=int, default=3)
-        pp.add_argument(
-            "--outdir",
-            default=None,
-            help="Optional explicit output directory for plots "
-            "(default: <workdir>/win_<window_kb>kb)",
-        )
+        pp.add_argument("--outdir", default=None)
 
     _add_hmmibd_plot_args(p_plot)
     _add_hmmibd_plot_args(p_alias)
@@ -282,24 +284,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run iHS scans from a binary SNP matrix (per category/subgroup) and generate plots/TSVs",
     )
     p.add_argument("--workdir", required=True)
-    p.add_argument("--species", required=True, help="Species tag (e.g. Pf3D7)")
     p.add_argument("--matrix_binary", required=True)
     p.add_argument("--metadata", required=True)
-    # Optional override (advanced users); default resolves via --species
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
     p.add_argument(
         "--genome-file",
         default=None,
-        help="Optional override: genome product TSV with columns: chr,pos_start,pos_end,gene_id,gene_product,gene_name",
+        help="Override genome product TSV path (otherwise resolved from --species)",
     )
     p.add_argument("--label_category", default="country")
     p.add_argument("--subgroup_col", default=None)
     p.add_argument("--label_id", default="sample_id")
     p.add_argument("--label_fws", default="fws")
-    p.add_argument(
-        "--category",
-        default=None,
-        help="Category value(s) (comma-separated) within --label_category. If omitted/ALL, run all.",
-    )
+    p.add_argument("--category", default=None)
     p.add_argument("--focus-pop", default=None)
     p.add_argument("--fws_th", type=float, default=0.95)
     p.add_argument("--maf", type=float, default=0.01)
@@ -325,21 +326,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run XP-EHH comparisons from scan_hh outputs (scanned_haplotypes_<pop>.tsv)",
     )
     p.add_argument("--workdir", required=True)
-    # Optional: keep current behavior (explicit genome-file), but allow species too
-    p.add_argument("--species", default=None, help="Species tag (e.g. Pf3D7) to auto-resolve genome-file")
-    p.add_argument("--genome-file", default=None, help="Optional override: gene product TSV")
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    p.add_argument(
+        "--genome-file",
+        default=None,
+        help="Override genome product TSV path (otherwise resolved from --species)",
+    )
     p.add_argument("--focus-pop", required=True)
     p.add_argument("--min-abs-xpehh", type=float, default=2.0)
     p.add_argument("--min-logp", type=float, default=1.3)
     p.add_argument("--remove_chr", default=None)
     p.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
     p.add_argument("--regex_groupid", type=int, default=3)
-    p.add_argument(
-        "--panel-groups",
-        default=None,
-        help="Optional comma-separated list of comparisons for a stacked multi-panel plot, "
-        'e.g. "Ethiopia_vs_Ghana,Ethiopia_vs_Malawi,Ethiopia_vs_Sudan"',
-    )
+    p.add_argument("--panel-groups", default=None)
 
     return parser
 
@@ -348,16 +351,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # ==========================
-    # Dispatch
-    # ==========================
-
     if args.command == "missense-drugres-af":
         require_tool("bcftools")
-        refs = resolve_species(args.species)
-        ref_fasta = args.ref or refs["fasta"]
-        gff3 = args.gff3 or refs["gff3"]
-
+        ref_fasta = args.ref if args.ref else _resolve_ref(args.species, "fasta")
+        gff3 = args.gff3 if args.gff3 else _resolve_ref(args.species, "gff3")
         missense_drugres_af.run(
             vcf=args.vcf,
             ref_fasta=ref_fasta,
@@ -439,10 +436,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "hmmibd-summary":
         require_tool("Rscript")
-        refs = resolve_species(args.species)
-        ref_index = args.ref_index or refs["fai"]
-        gene_product = args.gene_product or refs["gene_product"]
-
+        ref_index = args.ref_index if args.ref_index else _resolve_ref(args.species, "fai")
+        gene_product = args.gene_product if args.gene_product else _resolve_ref(args.species, "gene_product")
         hmmibd_summary.run(
             workdir=args.workdir,
             ref_index=ref_index,
@@ -459,10 +454,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command in ("hmmibd-ibdplots", "hmmibd-ibdplot"):
         require_tool("Rscript")
-        refs = resolve_species(args.species)
-        ref_index = args.ref_index or refs["fai"]
-        gene_product = args.gene_product or refs["gene_product"]
-
+        ref_index = args.ref_index if args.ref_index else _resolve_ref(args.species, "fai")
+        gene_product = args.gene_product if args.gene_product else _resolve_ref(args.species, "gene_product")
         hmmibd_ibdplots.run(
             workdir=args.workdir,
             ref_index=ref_index,
@@ -479,9 +472,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "ihs-selection":
         require_tool("Rscript")
-        refs = resolve_species(args.species)
-        genome_file = args.genome_file or refs["gene_product"]
-
+        genome_file = args.genome_file if args.genome_file else _resolve_ref(args.species, "gene_product")
         ihs_selection.run(
             workdir=args.workdir,
             matrix_binary=args.matrix_binary,
@@ -513,14 +504,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "xpehh-selection":
         require_tool("Rscript")
-        if args.genome_file:
-            genome_file = args.genome_file
-        elif args.species:
-            refs = resolve_species(args.species)
-            genome_file = refs["gene_product"]
-        else:
-            parser.error("xpehh-selection requires either --genome-file or --species")
-
+        genome_file = args.genome_file if args.genome_file else _resolve_ref(args.species, "gene_product")
         xpehh_selection.run(
             workdir=args.workdir,
             genome_file=genome_file,
@@ -534,11 +518,9 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
 
-    # Should never get here due to required=True on subparsers
     parser.error(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":
     main()
-
 
