@@ -95,7 +95,7 @@ malaria-pipeline missense-drugres-af \
   --group-by country
 
 ```
-*For users that want to supply their own reference and gff files use:*
+*For users that want to supply their own reference and gff files, usage:*
 ```
 malaria-pipeline missense-drugres-af \
   --vcf path/to/filtered.vcf.gz \
