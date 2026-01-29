@@ -1,9 +1,10 @@
 # malaria-popgen-toolkit
-*Undergoing renovations...* - Adding a ```--species``` tag and including genome reference files into the installation (e.g. Pf3D7 v3 for now, PvP01 v2 to come). **This will include eventually a manual override for the user but is not up-to-date yet**.
-
 A collection of reproducible population genomics workflows for *Plasmodium* species, designed to support transparent, accessible, and scalable malaria genomic analysis.
 
 *Tools and documentation were made for WGS data. Amplicon sequencing is technically not supported at the moment but many of these tools should be compatible with it.*
+
+*Undergoing renovations...* 
+- Adding a ```--species``` tag and including genome reference files into the installation (e.g. Pf3D7 v3 for now, PvP01 v2 to come). **This will include eventually a manual override for the user but is not up-to-date yet**.
 
 ## Installation and Prerequisites
 This toolkit has been formatted to interpret and analyse whole genome sequencing (WGS) data that has been processed using an open access *ngs-pipeline* toolkit designed by **VivaxGEN**, available at: 
