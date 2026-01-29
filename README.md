@@ -191,6 +191,26 @@ malaria-pipeline fws-dotplot \
 #### Output:
 ![Example fws](docs/images/fws_plot_example.png)
 
+## Quick Stats - How many samples and variants are in my filtered input file?
+Use this command to quickly report the number of samples and variants. You can provide either:
+
+```--matrix``` — a binary matrix with values 0, 0.5, 1, or N
+
+or
+
+```--vcf``` — a multi-sample VCF (which is internally converted into numeric genotypes)
+
+Example - running this tool using a binary matrix:
+```
+malaria-pipeline dataset-stats \
+  --matrix popgen_africa.mat.bin
+```
+Running using a filtered VCF file:
+```
+malaria-pipeline dataset-stats \
+  --vcf popgen_africa.vcf.gz
+```
+
 ## Distance-based PCA/PCoA
 This command performs pairwise SNP-difference distances using a Manhattan metric:
 - Missing genotypes (N or .) are allowed
@@ -200,15 +220,7 @@ This command performs pairwise SNP-difference distances using a Manhattan metric
 The PCoA / classical multidimensional-scaling (MDS) is run on the distance matrix, similar to R’s ```cmdscale()```
 
 ### Input:
-You can provide either:
-
-```--matrix``` — a binary matrix (.tsv) with values 0, 0.5, 1, or N,
-
-or
-
-```--vcf``` — a multi-sample VCF (which is internally converted into numeric genotypes)
-
-Metadata should be formatted as described above.
+You can provide either a binary matrix or a multi-sample VCF. Metadata should be formatted as described above.
 
 ### Running:
 Run time will vary depending on the sizer of the dataset - memory limits have been placed to promote running on local machines (vs. HPCs) when necessary.
