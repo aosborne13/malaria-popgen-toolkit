@@ -1,5 +1,5 @@
 # malaria-popgen-toolkit
-*Undergoing renovations...*
+*Undergoing renovations...* - Adding a ```--species``` tag and including genome reference files into the installation (e.g. Pf3D7 v3 for now, PvP01 v2 to come). **This will include eventually a manual override for the user but is not up-to-date yet**.
 
 A collection of reproducible population genomics workflows for *Plasmodium* species, designed to support transparent, accessible, and scalable malaria genomic analysis.
 
