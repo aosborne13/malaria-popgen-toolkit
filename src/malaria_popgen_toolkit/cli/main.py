@@ -1,189 +1,457 @@
-#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""
+Main CLI entry point for the malaria-popgen-toolkit.
+
+Program name:
+  malaria-pipeline
+"""
+
 from __future__ import annotations
 
 import argparse
-import importlib
+import shutil
 import sys
-from dataclasses import dataclass
-from typing import Callable, Optional
+
+from malaria_popgen_toolkit.commands import (
+    dataset_stats,
+    fws_dotplot,
+    haplotype_map_region,
+    hmmibd_ibdplots,
+    hmmibd_matrix,
+    hmmibd_summary,
+    ihs_selection,
+    missense_drugres_af,
+    pca_plot,
+    xpehh_selection,
+)
+
+from malaria_popgen_toolkit.resources.resolver import resolve_species
 
 
-# NOTE: the resolver exports resolve_species (not resolve)
-try:
-    from malaria_popgen_toolkit.resources.resolver import resolve_species  # noqa: F401
-except Exception:
-    # Don't hard-fail CLI help if resources can't import for some reason
-    resolve_species = None  # type: ignore
-
-
-@dataclass(frozen=True)
-class CommandSpec:
-    name: str
-    module: str
-    help: str
-
-
-# Map CLI subcommands to your src/malaria_popgen_toolkit/commands/*.py files
-COMMANDS: list[CommandSpec] = [
-    CommandSpec("dataset-stats", "malaria_popgen_toolkit.commands.dataset_stats", "Dataset summary statistics"),
-    CommandSpec("fws-dotplot", "malaria_popgen_toolkit.commands.fws_dotplot", "Plot Fws dotplot"),
-    CommandSpec("pca-plot", "malaria_popgen_toolkit.commands.pca_plot", "Plot PCA from genotype/metadata inputs"),
-    CommandSpec("haplotype-map-region", "malaria_popgen_toolkit.commands.haplotype_map_region", "Plot haplotype map by region"),
-    CommandSpec("ibd-plot", "malaria_popgen_toolkit.commands.ibd_plot", "Plot IBD diagnostics"),
-    CommandSpec("hmmibd-matrix", "malaria_popgen_toolkit.commands.hmmibd_matrix", "Run/prepare hmmIBD matrix workflow"),
-    CommandSpec("hmmibd-summary", "malaria_popgen_toolkit.commands.hmmibd_summary", "Summarize hmmIBD results"),
-    CommandSpec("hmmibd-ibdplots", "malaria_popgen_toolkit.commands.hmmibd_ibdplots", "Plot hmmIBD outputs"),
-    CommandSpec("ihs-selection", "malaria_popgen_toolkit.commands.ihs_selection", "Run iHS selection scan pipeline"),
-    CommandSpec("xpehh-selection", "malaria_popgen_toolkit.commands.xpehh_selection", "Run XP-EHH selection scan pipeline"),
-    CommandSpec("missense-drugres-af", "malaria_popgen_toolkit.commands.missense_drugres_af", "Missense drug resistance allele frequencies"),
-]
-
-
-def _load_command_module(module_path: str):
-    try:
-        return importlib.import_module(module_path)
-    except Exception as e:
-        raise RuntimeError(f"Failed to import command module '{module_path}': {e}") from e
-
-
-def _attach_command_parser(subparsers, spec: CommandSpec) -> None:
-    """
-    Attach a subparser for a command module.
-
-    We support several common patterns inside each command module:
-      - add_arguments(parser) / add_args(parser) / add_parser(subparsers)
-      - build_parser(parser) / configure_parser(parser)
-      - run(args) / main(args) / cli(args) / entry(args)
-
-    This makes main.py tolerant to minor refactors across modules.
-    """
-    mod = _load_command_module(spec.module)
-
-    parser = subparsers.add_parser(spec.name, help=spec.help, description=spec.help)
-
-    # 1) Let the module define its CLI args
-    added = False
-
-    # Pattern A: module provides add_arguments(parser) or similar
-    for fn_name in ("add_arguments", "add_args", "configure_parser", "build_parser"):
-        fn = getattr(mod, fn_name, None)
-        if callable(fn):
-            fn(parser)
-            added = True
-            break
-
-    # Pattern B: module expects to create its own parser via add_parser(subparsers)
-    if not added:
-        fn = getattr(mod, "add_parser", None)
-        if callable(fn):
-            # Some codebases do: add_parser(subparsers) -> parser
-            p = fn(subparsers)
-            if p is not None:
-                parser = p  # type: ignore
-            added = True
-
-    # If module didn't add args, keep parser minimal but usable
-    if not added:
-        parser.add_argument(
-            "--help-module",
-            action="store_true",
-            help="Show module docstring / available callables (debug aid).",
-        )
-
-    # 2) Choose an entry function to run when this subcommand is invoked
-    entry: Optional[Callable] = None
-    for fn_name in ("run", "main", "cli", "entry", "execute"):
-        fn = getattr(mod, fn_name, None)
-        if callable(fn):
-            entry = fn
-            break
-
-    if entry is None:
-        # No runnable entrypoint found
-        def _no_entrypoint(_args):
-            raise RuntimeError(
-                f"Command module '{spec.module}' does not define a runnable entrypoint.\n"
-                "Expected one of: run(args), main(args), cli(args), entry(args), execute(args)."
-            )
-        entry = _no_entrypoint
-
-    parser.set_defaults(_command_entrypoint=entry, _command_module=spec.module)
+def require_tool(name: str) -> None:
+    if shutil.which(name) is None:
+        sys.exit(f"ERROR: Required tool '{name}' not found in PATH.")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="malaria-pipeline",
-        description="malaria-popgen-toolkit: Population genomics CLI toolkit for Plasmodium analyses",
+        description="Malaria population genomics command-line toolkit",
     )
-    parser.add_argument(
-        "--version",
-        action="store_true",
-        help="Print version and exit",
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # ------------------------------------------------------------------
+    # missense-drugres-af
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "missense-drugres-af",
+        help="Compute missense allele frequencies in drug-resistance genes",
+    )
+    p.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped) with BCSQ or annotatable by bcftools csq")
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    # Optional overrides (if provided, they win over resolver)
+    p.add_argument("--ref", default=None, help="Override reference FASTA path (otherwise resolved from --species)")
+    p.add_argument("--gff3", default=None, help="Override GFF3 annotation path (otherwise resolved from --species)")
+    p.add_argument("--metadata", required=True, help="Metadata TSV with 'sample_id' and grouping column")
+    p.add_argument("--outdir", default="missense_af", help="Output directory")
+    p.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
+    p.add_argument("--group-by", default="country", help="Metadata column to group by (e.g. country/region/year)")
+
+    # ------------------------------------------------------------------
+    # Haplotype map by region (your existing command module)
+    # ------------------------------------------------------------------
+    p = sub.add_parser("haplotype-map-region", help="Haplotype map by region/category")
+    p.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped)")
+    p.add_argument("--metadata", required=True, help="Metadata TSV")
+    p.add_argument("--outdir", default="haplotype_map", help="Output directory")
+    p.add_argument("--region", required=True, help="Region name/label (passed to command)")
+    p.add_argument("--sample-col", default="sample_id")
+    p.add_argument("--country-col", default="country")
+
+    # ------------------------------------------------------------------
+    # Fws dotplot
+    # ------------------------------------------------------------------
+    p = sub.add_parser("fws-dotplot", help="Fws jittered dot plots")
+    p.add_argument("--metadata", required=True, help="Metadata TSV")
+    p.add_argument("--outdir", default="fws_plots")
+    p.add_argument(
+        "--group-by",
+        action="append",
+        help="Metadata column(s) to group by; repeat for multiple. If omitted, tries region, country, year.",
+    )
+    p.add_argument("--width", type=float, default=10)
+    p.add_argument("--height", type=float, default=6)
+
+    # ------------------------------------------------------------------
+    # PCA / PCoA
+    # ------------------------------------------------------------------
+    p = sub.add_parser("pca-plot", help="Distance-based PCA / PCoA from a matrix")
+    p.add_argument("--matrix", required=True, help="Binary genotype matrix (.tsv) with samples as columns")
+    p.add_argument("--metadata", required=True, help="Metadata TSV")
+    p.add_argument("--outdir", default="pca_plots")
+    p.add_argument("--sample-col", default="sample_id")
+    p.add_argument("--group-by", nargs="+", help="Metadata columns to color by (e.g. country region year)")
+    p.add_argument("--pcs", nargs="+", help="PC pairs to plot, e.g. --pcs 1,2 1,3 (default: 1,2 and 1,3)")
+    p.add_argument(
+        "--max-sample-missing",
+        type=float,
+        default=None,
+        help="Drop samples with >X fraction missing (e.g. 0.3)",
     )
 
-    subparsers = parser.add_subparsers(dest="command", required=False)
+    # ------------------------------------------------------------------
+    # dataset-stats
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "dataset-stats",
+        help="Quickly report #samples and #variants from a VCF or binary matrix",
+    )
+    p.add_argument("--vcf", help="VCF/BCF (bgzipped) file")
+    p.add_argument("--matrix", help="Binary matrix (.tsv) with samples as columns")
 
-    for spec in COMMANDS:
-        _attach_command_parser(subparsers, spec)
+    # ------------------------------------------------------------------
+    # hmmIBD (matrix -> input + run)
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "hmmibd-matrix",
+        help="Prepare input and run hmmIBD from a binary SNP matrix",
+    )
+    p.add_argument("--matrix", required=True, help="Binary SNP matrix: chr,pos,ref,<samples>")
+    p.add_argument("--metadata", required=True, help="Metadata TSV with sample IDs, category, and Fws column")
+    p.add_argument("--outdir", required=True, help="Working/output directory for hmmIBD inputs/outputs")
+    p.add_argument("--category-col", default="country")
+    p.add_argument(
+        "--category",
+        default=None,
+        help="Category value(s) (comma-separated) within --category-col. If omitted/ALL, run all categories.",
+    )
+    p.add_argument("--subgroup-col", default=None, help="Optional second-level grouping (e.g. year)")
+    p.add_argument("--sample-col", default="sample_id")
+    p.add_argument("--fws-col", default="fws")
+    p.add_argument("--fws-th", type=float, default=0.95)
+    p.add_argument("--maf", type=float, default=0.01)
+    p.add_argument("--threads", type=int, default=4)
+    p.add_argument("--hmmibd-bin", default="hmmIBD")
+    p.add_argument("--skip-hmmibd", action="store_true")
+    p.add_argument("--na-char", default="N", help="Character used for missing genotypes in matrix (also '.' treated missing)")
+    p.add_argument("--exclude-chr", default="Pf3D7_API_v3,Pf3D7_MIT_v3", help="Comma-separated chromosomes to drop")
+    p.add_argument("--regex-chr", default="(.*?)_(.+)_(.*)", help="Regex to parse chromosome names")
+    p.add_argument("--regex-group", type=int, default=3, help="Capture group index in regex-chr that contains numeric chromosome")
+
+    # ------------------------------------------------------------------
+    # hmmIBD summary: windows + annotation
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "hmmibd-summary",
+        help="Summarise hmmIBD output into sliding windows and annotate genes",
+    )
+    p.add_argument("--workdir", required=True, help="Directory with hmmIBD outputs and ibd_matrix_hap_leg.tsv")
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    # Optional overrides (if provided, they win)
+    p.add_argument("--ref_index", default=None, help="Override FASTA .fai path (otherwise resolved from --species)")
+    p.add_argument("--gene_product", default=None, help="Override genome product TSV path (otherwise resolved from --species)")
+    p.add_argument("--suffix", required=True, help="Prefix for output files (e.g. 10_12_2025)")
+    p.add_argument("--window_size", type=int, default=50000)
+    p.add_argument("--maf", type=float, default=0.01)
+    p.add_argument("--quantile_cutoff", type=float, default=0.95)
+    p.add_argument("--remove_chr", default="Pf3D7_API_v3,Pf3D7_MIT_v3", help="Comma-separated chromosomes to drop")
+    p.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
+    p.add_argument("--regex_groupid", type=int, default=3)
+
+    # ------------------------------------------------------------------
+    # hmmIBD plots (boxplot, genome-wide, chromosome painting)
+    # ------------------------------------------------------------------
+    p_plot = sub.add_parser("hmmibd-ibdplots", help="Generate IBD plots from summarised hmmIBD windows")
+    p_alias = sub.add_parser("hmmibd-ibdplot", help=argparse.SUPPRESS)
+
+    def _add_hmmibd_plot_args(pp: argparse.ArgumentParser) -> None:
+        pp.add_argument("--workdir", required=True)
+        pp.add_argument("--species", default="Pf3D7", help="Species/reference bundle ID to fetch (default: Pf3D7)")
+        pp.add_argument("--ref_index", default=None, help="Override FASTA .fai path (otherwise resolved from --species)")
+        pp.add_argument("--gene_product", default=None, help="Override gene product TSV path (otherwise resolved from --species)")
+        pp.add_argument("--suffix", required=True)
+        pp.add_argument("--window_size", type=int, default=50000)
+        pp.add_argument("--quantile_cutoff", type=float, default=0.95)
+        pp.add_argument("--remove_chr", default="Pf3D7_API_v3,Pf3D7_MIT_v3", help="Comma-separated chromosomes to remove")
+        pp.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
+        pp.add_argument("--regex_groupid", type=int, default=3)
+        pp.add_argument(
+            "--outdir",
+            default=None,
+            help="Optional explicit output directory for plots (default: <workdir>/win_<window_kb>kb)",
+        )
+
+    _add_hmmibd_plot_args(p_plot)
+    _add_hmmibd_plot_args(p_alias)
+
+    # ------------------------------------------------------------------
+    # iHS selection
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "ihs-selection",
+        help="Run iHS scans from a binary SNP matrix (per category/subgroup) and generate plots/TSVs",
+    )
+    p.add_argument("--workdir", required=True)
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    p.add_argument("--matrix_binary", required=True)
+    p.add_argument("--metadata", required=True)
+    p.add_argument(
+        "--genome-file",
+        default=None,
+        help="Override genome product TSV path (otherwise resolved from --species)",
+    )
+    p.add_argument("--label_category", default="country")
+    p.add_argument("--subgroup_col", default=None)
+    p.add_argument("--label_id", default="sample_id")
+    p.add_argument("--label_fws", default="fws")
+    p.add_argument(
+        "--category",
+        default=None,
+        help="Category value(s) (comma-separated) within --label_category. If omitted/ALL, run all.",
+    )
+    p.add_argument("--focus-pop", default=None)
+    p.add_argument("--fws_th", type=float, default=0.95)
+    p.add_argument("--maf", type=float, default=0.01)
+    p.add_argument("--rehh_min_perc_hap", type=float, default=80.0)
+    p.add_argument("--rehh_min_perc_mrk", type=float, default=70.0)
+    p.add_argument("--na_char", default="NA")
+    p.add_argument("--forced_recode", action="store_true")
+    p.add_argument("--forced_mixed", action="store_true")
+    p.add_argument("--remove_chr", default=None)
+    p.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
+    p.add_argument("--regex_groupid", type=int, default=3)
+    p.add_argument("--threads", type=int, default=4)
+    p.add_argument("--min-maf-ihs", type=float, default=0.0)
+    p.add_argument("--freqbin", type=float, default=0.05)
+    p.add_argument("--ihs-thresh", type=float, default=2.0)
+    p.add_argument("--logp-thresh", type=float, default=5.0)
+
+    # ------------------------------------------------------------------
+    # XP-EHH selection
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "xpehh-selection",
+        help="Run XP-EHH comparisons from scan_hh outputs (scanned_haplotypes_<pop>.tsv)",
+    )
+    p.add_argument("--workdir", required=True)
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    p.add_argument(
+        "--genome-file",
+        default=None,
+        help="Override genome product TSV path (otherwise resolved from --species)",
+    )
+    p.add_argument("--focus-pop", required=True)
+    p.add_argument("--min-abs-xpehh", type=float, default=2.0)
+    p.add_argument("--min-logp", type=float, default=1.3)
+    p.add_argument("--remove_chr", default=None)
+    p.add_argument("--regex_chr", default="(.*?)_(.+)_(.*)")
+    p.add_argument("--regex_groupid", type=int, default=3)
+    p.add_argument(
+        "--panel-groups",
+        default=None,
+        help='Optional comma-separated list of comparisons, e.g. "Ethiopia_vs_Ghana,Ethiopia_vs_Malawi"',
+    )
 
     return parser
 
 
-def _print_version() -> None:
-    try:
-        from importlib.metadata import version
-        v = version("malaria-popgen-toolkit")
-    except Exception:
-        v = "unknown"
-    print(v)
-
-
-def main(argv: Optional[list[str]] = None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
-
+def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if getattr(args, "version", False):
-        _print_version()
-        return 0
+    # ==========================
+    # Dispatch
+    # ==========================
 
-    # No subcommand -> show help
-    if not getattr(args, "command", None):
-        parser.print_help()
-        return 0
+    if args.command == "missense-drugres-af":
+        require_tool("bcftools")
+        refs = resolve_species(args.species)
+        ref_fasta = args.ref or refs["fasta"]
+        gff3 = args.gff3 or refs["gff3"]
 
-    # Debug helper for modules that didn't add args
-    if getattr(args, "help_module", False):
-        mod = _load_command_module(getattr(args, "_command_module"))
-        print(f"Module: {mod.__name__}")
-        print(getattr(mod, "__doc__", "") or "(no docstring)")
-        print("\nCallables:")
-        for name in dir(mod):
-            obj = getattr(mod, name)
-            if callable(obj) and not name.startswith("_"):
-                print(f"  - {name}")
-        return 0
+        missense_drugres_af.run(
+            vcf=args.vcf,
+            ref_fasta=ref_fasta,
+            gff3=gff3,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            min_dp=args.min_dp,
+            group_by=args.group_by,
+        )
+        return
 
-    entry = getattr(args, "_command_entrypoint", None)
-    if not callable(entry):
-        parser.error("Internal error: no command entrypoint configured.")
-        return 2
+    if args.command == "haplotype-map-region":
+        require_tool("bcftools")
+        haplotype_map_region.run(
+            vcf=args.vcf,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            region=args.region,
+            sample_col=args.sample_col,
+            country_col=args.country_col,
+        )
+        return
 
-    # Run command
-    try:
-        ret = entry(args)
-        return int(ret) if ret is not None else 0
-    except KeyboardInterrupt:
-        return 130
-    except Exception as e:
-        # Make errors readable in CLI usage
-        print(f"[malaria-pipeline] ERROR: {e}", file=sys.stderr)
-        return 1
+    if args.command == "fws-dotplot":
+        fws_dotplot.run(
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            group_by=args.group_by,
+            width=args.width,
+            height=args.height,
+        )
+        return
+
+    if args.command == "pca-plot":
+        pca_plot.run(
+            matrix=args.matrix,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            sample_col=args.sample_col,
+            group_by=args.group_by,
+            pcs=args.pcs,
+            max_sample_missing=args.max_sample_missing,
+        )
+        return
+
+    if args.command == "dataset-stats":
+        dataset_stats.run(vcf=args.vcf, matrix=args.matrix)
+        return
+
+    if args.command == "hmmibd-matrix":
+        require_tool("Rscript")
+        require_tool(args.hmmibd_bin)
+        hmmibd_matrix.run(
+            matrix=args.matrix,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            category_col=args.category_col,
+            category=args.category,
+            subgroup_col=args.subgroup_col,
+            sample_col=args.sample_col,
+            fws_col=args.fws_col,
+            fws_th=args.fws_th,
+            maf=args.maf,
+            threads=args.threads,
+            hmmibd_bin=args.hmmibd_bin,
+            skip_hmmibd=args.skip_hmmibd,
+            na_char=args.na_char,
+            exclude_chr=args.exclude_chr,
+            regex_chr=args.regex_chr,
+            regex_group=args.regex_group,
+        )
+        return
+
+    if args.command == "hmmibd-summary":
+        require_tool("Rscript")
+        refs = resolve_species(args.species)
+        ref_index = args.ref_index or refs["fai"]
+        gene_product = args.gene_product or refs["gene_product"]
+
+        hmmibd_summary.run(
+            workdir=args.workdir,
+            ref_index=ref_index,
+            gene_product=gene_product,
+            suffix=args.suffix,
+            window_size=args.window_size,
+            maf=args.maf,
+            quantile_cutoff=args.quantile_cutoff,
+            remove_chr=args.remove_chr,
+            regex_chr=args.regex_chr,
+            regex_groupid=args.regex_groupid,
+        )
+        return
+
+    if args.command in ("hmmibd-ibdplots", "hmmibd-ibdplot"):
+        require_tool("Rscript")
+        refs = resolve_species(args.species)
+        ref_index = args.ref_index or refs["fai"]
+        gene_product = args.gene_product or refs["gene_product"]
+
+        hmmibd_ibdplots.run(
+            workdir=args.workdir,
+            ref_index=ref_index,
+            gene_product=gene_product,
+            suffix=args.suffix,
+            window_size=args.window_size,
+            quantile_cutoff=args.quantile_cutoff,
+            remove_chr=args.remove_chr,
+            regex_chr=args.regex_chr,
+            regex_groupid=args.regex_groupid,
+            outdir=args.outdir,
+        )
+        return
+
+    if args.command == "ihs-selection":
+        require_tool("Rscript")
+        refs = resolve_species(args.species)
+        genome_file = args.genome_file or refs["gene_product"]
+
+        ihs_selection.run(
+            workdir=args.workdir,
+            matrix_binary=args.matrix_binary,
+            metadata=args.metadata,
+            genome_file=genome_file,
+            label_category=args.label_category,
+            subgroup_col=args.subgroup_col,
+            label_id=args.label_id,
+            label_fws=args.label_fws,
+            category=args.category,
+            focus_pop=args.focus_pop,
+            fws_th=args.fws_th,
+            maf=args.maf,
+            rehh_min_perc_hap=args.rehh_min_perc_hap,
+            rehh_min_perc_mrk=args.rehh_min_perc_mrk,
+            na_char=args.na_char,
+            forced_recode=args.forced_recode,
+            forced_mixed=args.forced_mixed,
+            remove_chr=args.remove_chr,
+            regex_chr=args.regex_chr,
+            regex_groupid=args.regex_groupid,
+            threads=args.threads,
+            min_maf_ihs=args.min_maf_ihs,
+            freqbin=args.freqbin,
+            ihs_thresh=args.ihs_thresh,
+            logp_thresh=args.logp_thresh,
+        )
+        return
+
+    if args.command == "xpehh-selection":
+        require_tool("Rscript")
+        refs = resolve_species(args.species)
+        genome_file = args.genome_file or refs["gene_product"]
+
+        xpehh_selection.run(
+            workdir=args.workdir,
+            genome_file=genome_file,
+            focus_pop=args.focus_pop,
+            min_abs_xpehh=args.min_abs_xpehh,
+            min_logp=args.min_logp,
+            remove_chr=args.remove_chr,
+            regex_chr=args.regex_chr,
+            regex_groupid=args.regex_groupid,
+            panel_groups=args.panel_groups,
+        )
+        return
+
+    parser.error(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
-
-
+    main()
