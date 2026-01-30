@@ -112,8 +112,10 @@ def build_parser() -> argparse.ArgumentParser:
     # ------------------------------------------------------------------
     # PCA / PCoA
     # ------------------------------------------------------------------
-    p = sub.add_parser("pca-plot", help="Distance-based PCA / PCoA from a matrix")
-    p.add_argument("--matrix", required=True, help="Binary genotype matrix (.tsv) with samples as columns")
+    p = sub.add_parser("pca-plot", help="Distance-based PCA / PCoA from a matrix or VCF")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--matrix", help="Binary genotype matrix (.tsv) with samples as columns")
+    g.add_argument("--vcf", help="Multi-sample VCF/BCF (bgzipped)")
     p.add_argument("--metadata", required=True, help="Metadata TSV")
     p.add_argument("--outdir", default="pca_plots")
     p.add_argument("--sample-col", default="sample_id")
@@ -489,3 +491,4 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
