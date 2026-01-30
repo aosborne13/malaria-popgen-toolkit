@@ -68,9 +68,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped)")
     p.add_argument("--metadata", required=True, help="Metadata TSV")
     p.add_argument("--outdir", default="haplotype_map", help="Output directory")
-    p.add_argument("--region", required=True, help="Region name/label (passed to command)")
+    p.add_argument(
+        "--region",
+        required=True,
+        choices=["africa", "samerica", "south_america", "seasia", "southeast_asia"],
+        help="Region preset (allowed): africa, samerica/south_america, seasia/southeast_asia",
+    )
+    p.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
     p.add_argument("--sample-col", default="sample_id")
     p.add_argument("--country-col", default="country")
+
+    # Back-compat aliases (old command names)
+    p_af = sub.add_parser("hapmap-africa", help=argparse.SUPPRESS)
+    p_sa = sub.add_parser("hapmap-samerica", help=argparse.SUPPRESS)
+    p_se = sub.add_parser("hapmap-seasia", help=argparse.SUPPRESS)
+
+    def _add_hapmap_args(pp: argparse.ArgumentParser) -> None:
+        pp.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped)")
+        pp.add_argument("--metadata", required=True, help="Metadata TSV")
+        pp.add_argument("--outdir", default="haplotype_map", help="Output directory")
+        pp.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
+        pp.add_argument("--sample-col", default="sample_id")
+        pp.add_argument("--country-col", default="country")
+
+    _add_hapmap_args(p_af)
+    _add_hapmap_args(p_sa)
+    _add_hapmap_args(p_se)
 
     # ------------------------------------------------------------------
     # Fws dotplot
@@ -296,13 +319,24 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
 
-    if args.command == "haplotype-map-region":
+    if args.command in ("haplotype-map-region", "hapmap-africa", "hapmap-samerica", "hapmap-seasia"):
         require_tool("bcftools")
+
+        if args.command == "hapmap-africa":
+            region = "africa"
+        elif args.command == "hapmap-samerica":
+            region = "samerica"
+        elif args.command == "hapmap-seasia":
+            region = "seasia"
+        else:
+            region = args.region
+
         haplotype_map_region.run(
             vcf=args.vcf,
             metadata_path=args.metadata,
             outdir=args.outdir,
-            region=args.region,
+            region=region,
+            min_dp=args.min_dp,
             sample_col=args.sample_col,
             country_col=args.country_col,
         )
