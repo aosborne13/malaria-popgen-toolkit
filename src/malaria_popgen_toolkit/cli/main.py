@@ -356,15 +356,16 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "pca-plot":
         pca_plot.run(
-            matrix=args.matrix,
-            metadata_path=args.metadata,
-            outdir=args.outdir,
-            sample_col=args.sample_col,
-            group_by=args.group_by,
-            pcs=args.pcs,
-            max_sample_missing=args.max_sample_missing,
-        )
-        return
+          matrix=args.matrix,
+          vcf=args.vcf,
+          metadata_path=args.metadata,
+          outdir=args.outdir,
+          sample_col=args.sample_col,
+          group_by=args.group_by,
+          pcs=args.pcs,
+          max_sample_missing=args.max_sample_missing,
+    )
+    return
 
     if args.command == "dataset-stats":
         dataset_stats.run(vcf=args.vcf, matrix=args.matrix)
