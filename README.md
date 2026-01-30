@@ -124,7 +124,7 @@ Geographical region can be specified using the argument ```--region``` and curre
 Here is an example of how to run the commands to generate haplotype maps depending on the region you are working in:
 
 ```
-malaria-pipeline hapmap-africa \
+malaria-pipeline haplotype-map-region \
   --vcf path/to/filtered.vcf.gz \
   --metadata path/to/metadata.tsv \
   --outdir hapmap_africa_output \
