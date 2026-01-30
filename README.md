@@ -197,7 +197,7 @@ Running using a filtered VCF file:
 malaria-pipeline dataset-stats \
   --vcf popgen_africa.vcf.gz
 ```
-*Runtime can be a long for large datasets.*
+*Note - VCF runtime can be a long for large datasets, matrix will be faster*
 
 ## Distance-based PCA/PCoA
 This command performs pairwise SNP-difference distances using a Manhattan metric:
