@@ -116,32 +116,19 @@ A global dataset run using the "country" group label and a minimum read depth (D
 ## Haplotype analysis for CRT, MDR1, DHFR, and DHPS
 Support currently includes maps of Africa, South America, and Southeast Asia. As of now, K13 has not been included in these maps as a wild-type haplotype has not been established.
 
+Geographical region can be specified using the argument ```--region``` and currently accepts:
+- Africa = ```africa```
+- Southeast Asia = ```seasia```,```southeast_asia```
+- South America = ```samerica```,```south_america```
+
 Here is an example of how to run the commands to generate haplotype maps depending on the region you are working in:
 
 ```
-# Africa
 malaria-pipeline hapmap-africa \
   --vcf path/to/filtered.vcf.gz \
   --metadata path/to/metadata.tsv \
   --outdir hapmap_africa_output \
-  --min-dp 5 \
-  --sample-col sample_id \
-  --country-col country
-
-# South America
-malaria-pipeline hapmap-samerica \
-  --vcf path/to/filtered.vcf.gz \
-  --metadata path/to/metadata.tsv \
-  --outdir hapmap_samerica_output \
-  --min-dp 5 \
-  --sample-col sample_id \
-  --country-col country
-
-# Southeast Asia
-malaria-pipeline hapmap-seasia \
-  --vcf path/to/filtered.vcf.gz \
-  --metadata path/to/metadata.tsv \
-  --outdir hapmap_seasia_output \
+  --region africa \
   --min-dp 5 \
   --sample-col sample_id \
   --country-col country
