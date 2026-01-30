@@ -215,7 +215,7 @@ Run time will vary depending on the sizer of the dataset - memory limits have be
 
 Example - running this tool using a binary matrix:
 ```
-malaria-pipeline pca \
+malaria-pipeline pca-plot \
   --matrix popgen_africa.mat.bin \
   --metadata metadata.tsv \
   --group-by country region year \
@@ -227,7 +227,7 @@ Running using a filtered VCF file:
 
 *Note: ```--max-sample-missing``` currently only works if you supply a ```--matrix```, not a VCF file*
 ```
-malaria-pipeline pca \
+malaria-pipeline pca-plot \
   --vcf popgen_africa.vcf.gz \
   --metadata metadata.tsv \
   --group-by country \
