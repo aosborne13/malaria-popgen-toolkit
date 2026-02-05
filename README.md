@@ -375,8 +375,5 @@ malaria-pipeline ihs-selection \
 ### Fst
 *Under construction...*
 
-## Structural variant detection
-*Under construction...*
-
 ## Admixture ancestry analysis
 *Under construction...*
