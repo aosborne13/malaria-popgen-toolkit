@@ -320,7 +320,7 @@ Output files will be written into the ```--workdir```
 - <suffix>_hmmIBD_ibd_win50kb_annotated_q0.90.tsv
 - <suffix>_hmmIBD_ibd_win50kb_annotated_q0.90_wide.tsv
 
-### Selection - Step 1: Plot IBD summaries
+### Selection - Step 3: Plot IBD summaries
 Generates:
 - pairwise fraction IBD boxplots
 - genome-wide fraction plots (Manhattan-style per group)
