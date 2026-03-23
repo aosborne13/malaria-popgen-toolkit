@@ -62,21 +62,46 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--group-by", nargs="+", default=["country"], help="One or more metadata columns to group by hierarchically (e.g. --group-by country year)")
 
     # ------------------------------------------------------------------
-    # Haplotype map by region (your existing command module)
+    # Haplotype map by region/category
     # ------------------------------------------------------------------
-    p = sub.add_parser("haplotype-map-region", help="Haplotype map by region/category")
+    p = sub.add_parser(
+        "haplotype-map-region",
+        help="Haplotype map by region/category or globally",
+    )
     p.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped)")
     p.add_argument("--metadata", required=True, help="Metadata TSV")
     p.add_argument("--outdir", default="haplotype_map", help="Output directory")
     p.add_argument(
         "--region",
         required=True,
-        choices=["africa", "samerica", "south_america", "seasia", "southeast_asia"],
-        help="Region preset (allowed): africa, samerica/south_america, seasia/southeast_asia",
+        choices=[
+            "africa",
+            "samerica",
+            "south_america",
+            "seasia",
+            "southeast_asia",
+            "global",
+            "world",
+            "all",
+        ],
+        help=(
+            "Map preset: africa, samerica/south_america, "
+            "seasia/southeast_asia, or global/world/all"
+        ),
     )
-    p.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
-    p.add_argument("--sample-col", default="sample_id")
-    p.add_argument("--country-col", default="country")
+    p.add_argument(
+        "--min-dp",
+        type=int,
+        default=5,
+        help="Minimum DP to include a sample genotype at a site",
+    )
+    p.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
+    p.add_argument("--country-col", default="country", help="Metadata column with country names")
+    p.add_argument(
+        "--show-labels",
+        action="store_true",
+        help="Show country labels above pie charts",
+    )
 
     # Back-compat aliases (old command names)
     p_af = sub.add_parser("hapmap-africa", help=argparse.SUPPRESS)
@@ -87,9 +112,19 @@ def build_parser() -> argparse.ArgumentParser:
         pp.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped)")
         pp.add_argument("--metadata", required=True, help="Metadata TSV")
         pp.add_argument("--outdir", default="haplotype_map", help="Output directory")
-        pp.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
-        pp.add_argument("--sample-col", default="sample_id")
-        pp.add_argument("--country-col", default="country")
+        pp.add_argument(
+            "--min-dp",
+            type=int,
+            default=5,
+            help="Minimum DP to include a sample genotype at a site",
+        )
+        pp.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
+        pp.add_argument("--country-col", default="country", help="Metadata column with country names")
+        pp.add_argument(
+            "--show-labels",
+            action="store_true",
+            help="Show country labels above pie charts",
+        )
 
     _add_hapmap_args(p_af)
     _add_hapmap_args(p_sa)
