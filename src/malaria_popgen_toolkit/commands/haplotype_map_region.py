@@ -1,12 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """
-Haplotype maps for drug-resistance genes by region (Africa/S. America/SE Asia).
+Haplotype maps for drug-resistance genes by region or globally.
 - Reads multi-sample VCF + metadata TSV
 - Intersects metadata sample IDs with VCF samples (avoids bcftools failure)
 - Applies per-sample DP filtering (DP >= min_dp) when deciding haplotypes
 - Assembles per-gene haplotypes from fixed codon sets
 - Exports per-gene haplotype frequency CSVs
-- Plots regional pie charts with GeoPandas (geodatasets or Natural Earth fallback)
+- Plots pie-chart haplotype maps with GeoPandas (geodatasets or Natural Earth fallback)
+
+Supported map scopes:
+- africa
+- samerica / south_america
+- seasia / southeast_asia
+- global / world / all
 
 Note: If a codon site is absent in the VCF (invariant), treat as REF.
 
@@ -26,7 +32,6 @@ from collections import Counter
 from difflib import get_close_matches
 from typing import Dict, List, Tuple
 
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import geopandas as gpd
@@ -53,7 +58,6 @@ GENE_CODON_POSITIONS: Dict[str, Dict[str, Dict[int, Tuple[int, str, str]]]] = {
             403602: (74, 'M', 'I'),
             403605: (75, 'N', 'E'),
             403625: (76, 'K', 'T'),
-            # Multi-codon 74–76 variant: MNK > IET
             403618: (74, 'MNK', 'IET'),
         },
     },
@@ -99,15 +103,12 @@ WILDTYPE_HAPLO = {
 # Country-name canonicalization (aliases -> Natural Earth names)
 # ---------------------------------------------------------------------
 COUNTRY_ALIASES = {
-    # Explicit
     "drc": "Democratic Republic of the Congo",
     "gambia": "The Gambia",
-    # Common variants
     "democratic republic of congo": "Democratic Republic of the Congo",
     "congo (kinshasa)": "Democratic Republic of the Congo",
     "congo, the democratic republic of the": "Democratic Republic of the Congo",
     "the gambia": "The Gambia",
-    # Extras
     "ivory coast": "Côte d’Ivoire",
     "cote d'ivoire": "Côte d’Ivoire",
     "swaziland": "Eswatini",
@@ -119,7 +120,7 @@ def _norm(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
-def _canonical_country_name(user_name: str, shape_names: list[str]) -> str | None:
+def _canonical_country_name(user_name: str, shape_names: List[str]) -> str | None:
     """Return shapefile country name that best matches user_name."""
     if user_name in shape_names:
         return user_name
@@ -161,7 +162,7 @@ def _sample_order_for_query(vcf_path: str, chrom: str, start: int, end: int) -> 
     ])
     if hdr:
         cols = hdr.strip().split('\n')[-1].split('\t')
-        return cols[4:]  # after CHROM,POS,REF,ALT
+        return cols[4:]
     return sorted(_vcf_samples(vcf_path))
 
 
@@ -184,7 +185,6 @@ def _load_world_countries(cache_dir: str | None = None) -> gpd.GeoDataFrame:
             except Exception:
                 pass
 
-    # Fallback: download Natural Earth 110m admin_0
     import urllib.request
     url = "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip"
     if cache_dir is None:
@@ -199,19 +199,24 @@ def _load_world_countries(cache_dir: str | None = None) -> gpd.GeoDataFrame:
 def _region_geodf(region: str, cache_dir: str | None = None) -> gpd.GeoDataFrame:
     world = _load_world_countries(cache_dir)
     cols = {c.lower(): c for c in world.columns}
-    cont_col = cols.get("continent") or cols.get("CONTINENT".lower())
+    cont_col = cols.get("continent")
     if cont_col is None:
         raise RuntimeError("No continent column in country layer.")
+
     world = world.to_crs(4326)
     cont = world[cont_col].astype(str).str.lower()
     region = region.lower()
+
     if region == "africa":
         return world[cont == "africa"].copy()
-    elif region in ("south_america", "samerica"):
+    if region in ("south_america", "samerica"):
         return world[cont == "south america"].copy()
-    elif region in ("southeast_asia", "seasia"):
-        return world[cont == "asia"].copy()  # crude; refine with a country list if desired
-    return world
+    if region in ("southeast_asia", "seasia"):
+        return world[cont == "asia"].copy()  # broad Asia preset
+    if region in ("global", "world", "all"):
+        return world.copy()
+
+    return world.copy()
 
 def _country_name_column(gdf: gpd.GeoDataFrame) -> str:
     for cand in ("NAME_EN", "ADMIN", "NAME", "name_en", "admin", "name"):
@@ -286,46 +291,33 @@ def _haplotypes_for_gene(
 
     ordered_positions = sorted(pos_map.keys(), key=lambda p: pos_map[p][0])
     hap_by_sample: Dict[str, str] = {}
+
     for s in samples:
         aaseq = []
         for p in ordered_positions:
-            codon_no, refAA, mutAA = pos_map[p]
+            _, refAA, mutAA = pos_map[p]
             tok = per_sample_tokens[s].get(p)
             if tok is None:
-                aaseq.append(refAA)  # assume invariant/REF if absent
+                aaseq.append(refAA)
                 continue
             parsed = _parse_gt_dp_token(tok, min_dp)
             if parsed is None:
-                aaseq.append(refAA)  # fails DP or missing -> treat as REF
+                aaseq.append(refAA)
                 continue
             alt_ct, _ = parsed
             aaseq.append(mutAA if alt_ct > 0 else refAA)
         hap_by_sample[s] = ''.join(aaseq)
 
-    # --- CRT-specific post-processing: normalise messy strings to CVMNK / CVIET ---
     if gene.upper() == "CRT":
         fixed: Dict[str, str] = {}
         for s, hap in hap_by_sample.items():
-            # Remove anything that's not A–Z just in case
             clean = re.sub(r"[^A-Z]", "", hap or "")
 
-            # If this doesn't look like CV***, just leave as-is
             if not clean.startswith("CV") or len(clean) < 3:
                 fixed[s] = clean
                 continue
 
-            # Variable region = codons 74–76, which may be encoded via:
-            # - individual sites 74, 75, 76, and/or
-            # - the 74–76 multi-codon site at 403618 (MNK/IET),
-            # potentially leading to long strings like CVMNKIET, CVMMNKNK, CVMIETNT.
             var = clean[2:]
-
-            # We biologically only care about:
-            #   - CVMNK (WT)
-            #   - CVIET (mutant)
-            #
-            # If any of I/E/T appear in the variable region, call CVIET;
-            # otherwise call CVMNK.
             if any(aa in var for aa in ("I", "E", "T")):
                 fixed[s] = "CVIET"
             else:
@@ -346,9 +338,15 @@ def _draw_pie(ax, center_xy, frac_list, color_list, radius_deg):
         if f <= 0:
             continue
         theta = 360.0 * f
-        w = Wedge(center=(x, y), r=radius_deg,
-                  theta1=start_ang, theta2=start_ang + theta,
-                  facecolor=c, edgecolor="black", linewidth=0.5)
+        w = Wedge(
+            center=(x, y),
+            r=radius_deg,
+            theta1=start_ang,
+            theta2=start_ang + theta,
+            facecolor=c,
+            edgecolor="black",
+            linewidth=0.5,
+        )
         ax.add_patch(w)
         start_ang += theta
 
@@ -356,45 +354,52 @@ def _draw_pie(ax, center_xy, frac_list, color_list, radius_deg):
 # ---------------------------------------------------------------------
 # Public entrypoint
 # ---------------------------------------------------------------------
-def run(region: str,
-        vcf: str,
-        metadata_path: str,
-        outdir: str,
-        min_dp: int = 5,
-        sample_col: str = "sample_id",
-        country_col: str = "country"):
+def run(
+    region: str,
+    vcf: str,
+    metadata_path: str,
+    outdir: str,
+    min_dp: int = 5,
+    sample_col: str = "sample_id",
+    country_col: str = "country",
+    show_labels: bool = False,
+):
     """
-    Build and plot haplotype pies for a region; export per-gene haplotype frequencies.
+    Build and plot haplotype pies for a region or globally; export per-gene haplotype frequencies.
     """
     os.makedirs(outdir, exist_ok=True)
 
-    # Load metadata and sanitize sample IDs
     meta = pd.read_csv(metadata_path, sep="\t", dtype=str)
     if sample_col not in meta.columns or country_col not in meta.columns:
         raise SystemExit(f"Metadata must contain '{sample_col}' and '{country_col}'.")
-    meta[sample_col] = meta[sample_col].astype(str).str.strip()
-    meta = meta[meta[sample_col].ne('') & meta[sample_col].notna()]
 
-    # Intersect with VCF samples
+    meta[sample_col] = meta[sample_col].astype(str).str.strip()
+    meta[country_col] = meta[country_col].astype(str).str.strip()
+    meta = meta[meta[sample_col].ne('') & meta[sample_col].notna()]
+    meta = meta[meta[country_col].ne('') & meta[country_col].notna()]
+
     vcf_samps = _vcf_samples(vcf)
     if not vcf_samps:
         raise SystemExit("Could not read samples from VCF via 'bcftools query -l'.")
+
     groups: Dict[str, List[str]] = {}
     for country, dfc in meta.groupby(country_col):
         wanted = dfc[sample_col].tolist()
         present = [s for s in wanted if s in vcf_samps]
         missing = sorted(set(wanted) - set(present))
+
         if missing:
             print(f"[WARN] {country}: {len(missing)} metadata samples not in VCF. "
                   f"Examples: {', '.join(missing[:10])}")
+
         if present:
             groups[country] = present
+
     if not groups:
         raise SystemExit("No usable groups: none of the metadata samples matched the VCF.")
 
-    # Build haplotypes per gene and aggregate per country (using user country names for now)
-    all_hap_freqs: Dict[str, Dict[str, Counter]] = {}      # gene -> user_country -> Counter(hap)
-    all_records: List[Dict[str, str | int | float]] = []   # for CSV export
+    all_hap_freqs: Dict[str, Dict[str, Counter]] = {}
+    all_records: List[Dict[str, str | int | float | bool]] = []
 
     for gene, ginfo in GENE_CODON_POSITIONS.items():
         chrom = ginfo["chrom"]
@@ -408,7 +413,7 @@ def run(region: str,
                 gene=gene,
                 chrom=chrom,
                 pos_map=pos_map,
-                min_dp=min_dp
+                min_dp=min_dp,
             )
             if not hap_by_sample:
                 continue
@@ -425,12 +430,11 @@ def run(region: str,
                     "Haplotype": hap,
                     "Frequency": round(c / total, 6) if total > 0 else 0.0,
                     "SampleSize": total,
-                    "Is_Wildtype": hap == WILDTYPE_HAPLO.get(gene, "")
+                    "Is_Wildtype": hap == WILDTYPE_HAPLO.get(gene, ""),
                 })
 
         all_hap_freqs[gene] = gene_country_counts
 
-        # Export per-gene CSV (keeps user country names as provided)
         gene_out = os.path.join(outdir, f"{gene}_haplotype_frequencies_{region}.csv")
         gene_recs = [r for r in all_records if r["Gene"] == gene]
         if gene_recs:
@@ -439,7 +443,6 @@ def run(region: str,
         else:
             print(f"[WARN] No data for {gene}")
 
-    # --- Remap country keys to shapefile names before plotting ---
     cache_dir = os.path.abspath(outdir)
     region_gdf = _region_geodf(region, cache_dir=cache_dir)
     name_col = _country_name_column(region_gdf)
@@ -453,19 +456,27 @@ def run(region: str,
             if canon is None:
                 print(f"[WARN] No map match for '{user_country}' – skipping pies for this name.")
                 continue
-            cc2.setdefault(canon, Counter()).update(counter)  # merge if multiple map to same
+            cc2.setdefault(canon, Counter()).update(counter)
         remapped[gene] = cc2
 
     out_png = os.path.join(outdir, f"haplotype_map_{region}.png")
-    _plot_region_pies(remapped, region_gdf, out_png)
+    _plot_region_pies(
+        hap_dict=remapped,
+        region_gdf=region_gdf,
+        out_png=out_png,
+        show_labels=show_labels,
+    )
 
 
 # ---------------------------------------------------------------------
 # Plotting (2x2 panels)
 # ---------------------------------------------------------------------
-def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
-                      region_gdf: gpd.GeoDataFrame,
-                      out_png: str):
+def _plot_region_pies(
+    hap_dict: Dict[str, Dict[str, Counter]],
+    region_gdf: gpd.GeoDataFrame,
+    out_png: str,
+    show_labels: bool = False,
+):
     name_col = _country_name_column(region_gdf)
     centroids = _country_centroids(region_gdf)
 
@@ -477,9 +488,9 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     fig, axes = plt.subplots(2, 2, figsize=(14, 14))
     axes = axes.flatten()
 
-    # Lock map extent & aspect, draw basemap
     xmin, ymin, xmax, ymax = region_gdf.total_bounds
     padx, pady = (xmax - xmin) * 0.04, (ymax - ymin) * 0.04
+
     for ax in axes:
         ax.axis("off")
         region_gdf.plot(ax=ax, color="white", edgecolor="0.6", linewidth=0.8)
@@ -487,13 +498,22 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
         ax.set_ylim(ymin - pady, ymax + pady)
         ax.set_aspect("equal", adjustable="box")
 
-    # Panel letters
     panel_labels = ["A", "B", "C", "D"]
+
+    map_w = xmax - xmin
+    if map_w > 200:
+        radius_deg = 2.5
+    else:
+        radius_deg = max(0.6, 0.036 * map_w)
 
     for i, gene in enumerate(gene_order):
         ax = axes[i]
-        ax.text(0.01, 0.98, panel_labels[i], transform=ax.transAxes,
-                va="top", ha="left", fontsize=16, fontweight="bold")
+        ax.text(
+            0.01, 0.98, panel_labels[i],
+            transform=ax.transAxes,
+            va="top", ha="left",
+            fontsize=16, fontweight="bold",
+        )
         ax.set_title(gene, fontsize=14, pad=6)
 
         country_counts = hap_dict[gene]
@@ -501,11 +521,12 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
         colors = plt.cm.tab20.colors
         hap_colors = {h: colors[j % len(colors)] for j, h in enumerate(all_haps)}
 
-        # Legend with codon numbers
         codon_numbers = [str(v[0]) for v in GENE_CODON_POSITIONS[gene]["positions"].values()]
         legend_handles = [
-            mpatches.Patch(color=hap_colors[h],
-                           label=f"{h}{' (WT)' if WILDTYPE_HAPLO.get(gene) == h else ''}")
+            mpatches.Patch(
+                color=hap_colors[h],
+                label=f"{h}{' (WT)' if WILDTYPE_HAPLO.get(gene) == h else ''}"
+            )
             for h in all_haps
         ]
         ax.legend(
@@ -517,40 +538,42 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
             frameon=True,
         )
 
-        # Pies
-        map_w = xmax - xmin
-        radius_deg = max(0.6, 0.036 * map_w)  # slightly bigger pies; adjust factor to taste
         for _, row in region_gdf.iterrows():
             country = str(row[name_col])
             if country not in country_counts:
                 continue
+
             lon, lat = centroids.get(country, (None, None))
             if lon is None:
                 continue
+
             cnt = country_counts[country]
             total = sum(cnt.values())
             if total == 0:
                 continue
+
             fracs = [cnt.get(h, 0) / total for h in all_haps]
             _draw_pie(ax, (lon, lat), fracs, [hap_colors[h] for h in all_haps], radius_deg)
 
-            # --- Wrapped country labels (2 lines if >2 words) + optional extra offset ---
-            words = country.split()
-            if len(words) > 2:
-                mid = 2 if len(words) > 4 else len(words) // 2
-                wrapped_name = "\n".join([" ".join(words[:mid]), " ".join(words[mid:])])
-            else:
-                wrapped_name = country
+            if show_labels:
+                words = country.split()
+                if len(words) > 2:
+                    mid = 2 if len(words) > 4 else len(words) // 2
+                    wrapped_name = "\n".join([" ".join(words[:mid]), " ".join(words[mid:])])
+                else:
+                    wrapped_name = country
 
-            ax.text(
-                lon, lat + radius_deg * 1.5,  # optional extra offset applied
-                wrapped_name,
-                ha="center", va="bottom",
-                fontsize=8, fontweight="bold",
-                linespacing=1.1,
-            )
+                ax.text(
+                    lon,
+                    lat + radius_deg * 1.5,
+                    wrapped_name,
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    fontweight="bold",
+                    linespacing=1.1,
+                )
 
-    # Hide any unused axes
     for j in range(len(gene_order), 4):
         axes[j].axis("off")
 
@@ -559,9 +582,6 @@ def _plot_region_pies(hap_dict: Dict[str, Dict[str, Counter]],
     plt.savefig(out_png, dpi=300)
     plt.close(fig)
     print(f"[OK] Saved map: {out_png}")
-
-
-
 
 
 
