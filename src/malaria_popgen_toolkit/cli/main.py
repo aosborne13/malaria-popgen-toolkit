@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metadata", required=True, help="Metadata TSV with 'sample_id' and grouping column")
     p.add_argument("--outdir", default="missense_af", help="Output directory")
     p.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
-    p.add_argument("--group-by", default="country", help="Metadata column to group by (e.g. country/region/year)")
+    p.add_argument("--group-by", nargs="+", default=["country"], help="One or more metadata columns to group by hierarchically (e.g. --group-by country year)")
 
     # ------------------------------------------------------------------
     # Haplotype map by region (your existing command module)
