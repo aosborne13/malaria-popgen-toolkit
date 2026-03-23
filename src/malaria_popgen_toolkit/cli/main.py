@@ -47,19 +47,45 @@ def build_parser() -> argparse.ArgumentParser:
         "missense-drugres-af",
         help="Compute missense allele frequencies in drug-resistance genes",
     )
-    p.add_argument("--vcf", required=True, help="Input VCF/BCF (bgzipped) with BCSQ or annotatable by bcftools csq")
+    p.add_argument(
+        "--vcf",
+        required=True,
+        help="Input VCF/BCF (bgzipped) with BCSQ or annotatable by bcftools csq",
+    )
     p.add_argument(
         "--species",
         default="Pf3D7",
         help="Species/reference bundle ID to fetch (default: Pf3D7)",
     )
     # Optional overrides (if provided, they win over resolver)
-    p.add_argument("--ref", default=None, help="Override reference FASTA path (otherwise resolved from --species)")
-    p.add_argument("--gff3", default=None, help="Override GFF3 annotation path (otherwise resolved from --species)")
-    p.add_argument("--metadata", required=True, help="Metadata TSV with 'sample_id' and grouping column")
+    p.add_argument(
+        "--ref",
+        default=None,
+        help="Override reference FASTA path (otherwise resolved from --species)",
+    )
+    p.add_argument(
+        "--gff3",
+        default=None,
+        help="Override GFF3 annotation path (otherwise resolved from --species)",
+    )
+    p.add_argument(
+        "--metadata",
+        required=True,
+        help="Metadata TSV with 'sample_id' and grouping column",
+    )
     p.add_argument("--outdir", default="missense_af", help="Output directory")
-    p.add_argument("--min-dp", type=int, default=5, help="Minimum DP to include a sample genotype at a site")
-    p.add_argument("--group-by", nargs="+", default=["country"], help="One or more metadata columns to group by hierarchically (e.g. --group-by country year)")
+    p.add_argument(
+        "--min-dp",
+        type=int,
+        default=5,
+        help="Minimum DP to include a sample genotype at a site",
+    )
+    p.add_argument(
+        "--group-by",
+        nargs="+",
+        default=["country"],
+        help="One or more metadata columns to group by hierarchically (e.g. --group-by country year)",
+    )
 
     # ------------------------------------------------------------------
     # Haplotype map by region/category
@@ -80,13 +106,17 @@ def build_parser() -> argparse.ArgumentParser:
             "south_america",
             "seasia",
             "southeast_asia",
+            "oceania",
+            "seasia_oceania",
+            "asia_pacific",
             "global",
             "world",
             "all",
         ],
         help=(
             "Map preset: africa, samerica/south_america, "
-            "seasia/southeast_asia, or global/world/all"
+            "seasia/southeast_asia, oceania, "
+            "seasia_oceania/asia_pacific, or global/world/all"
         ),
     )
     p.add_argument(
@@ -95,8 +125,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=5,
         help="Minimum DP to include a sample genotype at a site",
     )
-    p.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
-    p.add_argument("--country-col", default="country", help="Metadata column with country names")
+    p.add_argument(
+        "--sample-col",
+        default="sample_id",
+        help="Metadata column with sample IDs",
+    )
+    p.add_argument(
+        "--country-col",
+        default="country",
+        help="Metadata column with country names",
+    )
     p.add_argument(
         "--show-labels",
         action="store_true",
@@ -118,8 +156,16 @@ def build_parser() -> argparse.ArgumentParser:
             default=5,
             help="Minimum DP to include a sample genotype at a site",
         )
-        pp.add_argument("--sample-col", default="sample_id", help="Metadata column with sample IDs")
-        pp.add_argument("--country-col", default="country", help="Metadata column with country names")
+        pp.add_argument(
+            "--sample-col",
+            default="sample_id",
+            help="Metadata column with sample IDs",
+        )
+        pp.add_argument(
+            "--country-col",
+            default="country",
+            help="Metadata column with country names",
+        )
         pp.add_argument(
             "--show-labels",
             action="store_true",
@@ -215,7 +261,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="Pf3D7",
         help="Species/reference bundle ID to fetch (default: Pf3D7)",
     )
-    # Optional overrides (if provided, they win)
     p.add_argument("--ref_index", default=None, help="Override FASTA .fai path (otherwise resolved from --species)")
     p.add_argument("--gene_product", default=None, help="Override genome product TSV path (otherwise resolved from --species)")
     p.add_argument("--suffix", required=True, help="Prefix for output files (e.g. 10_12_2025)")
@@ -376,6 +421,7 @@ def main(argv: list[str] | None = None) -> None:
             min_dp=args.min_dp,
             sample_col=args.sample_col,
             country_col=args.country_col,
+            show_labels=args.show_labels,
         )
         return
 
@@ -391,16 +437,16 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "pca-plot":
         pca_plot.run(
-          matrix=args.matrix,
-          vcf=args.vcf,
-          metadata_path=args.metadata,
-          outdir=args.outdir,
-          sample_col=args.sample_col,
-          group_by=args.group_by,
-          pcs=args.pcs,
-          max_sample_missing=args.max_sample_missing,
-    )
-    return
+            matrix=args.matrix,
+            vcf=args.vcf,
+            metadata_path=args.metadata,
+            outdir=args.outdir,
+            sample_col=args.sample_col,
+            group_by=args.group_by,
+            pcs=args.pcs,
+            max_sample_missing=args.max_sample_missing,
+        )
+        return
 
     if args.command == "dataset-stats":
         dataset_stats.run(vcf=args.vcf, matrix=args.matrix)
@@ -523,8 +569,4 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     parser.error(f"Unknown command: {args.command}")
-
-
-if __name__ == "__main__":
-    main()
 
