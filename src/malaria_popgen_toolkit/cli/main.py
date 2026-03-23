@@ -57,7 +57,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="Pf3D7",
         help="Species/reference bundle ID to fetch (default: Pf3D7)",
     )
-    # Optional overrides (if provided, they win over resolver)
     p.add_argument(
         "--ref",
         default=None,
@@ -569,4 +568,8 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     parser.error(f"Unknown command: {args.command}")
+
+
+if __name__ == "__main__":
+    main()
 
