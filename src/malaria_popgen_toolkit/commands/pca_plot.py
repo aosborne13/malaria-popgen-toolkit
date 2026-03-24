@@ -9,7 +9,7 @@ Method:
        - Missing values are allowed.
        - For each pair (i,j), only loci where BOTH are non-missing are used.
        - The sum of |x_k - y_k| is scaled up proportionally to the total
-         number of loci (matching the behaviour of R's amap::Dist). 
+         number of loci (matching the behaviour of R's amap::Dist).
   2) Run classical MDS / PCoA (cmdscale-style) on the distance matrix.
   3) Plot requested PC pairs (default PC1–PC2 and PC1–PC3) colored by metadata
      group columns (e.g. region, country, year).
@@ -18,8 +18,10 @@ No imputation of missing genotypes is performed.
 """
 
 from __future__ import annotations
+
 import os
 import sys
+import shutil
 import subprocess
 from typing import List, Tuple, Optional
 
@@ -31,21 +33,36 @@ import matplotlib.pyplot as plt
 # ------------------------
 # Utilities
 # ------------------------
-def _require_tool(name: str):
-    if subprocess.run(["bash", "-lc", f"command -v {name} >/dev/null 2>&1"]).returncode != 0:
-        sys.exit(f"ERROR: required tool '{name}' not found in PATH.")
+def _require_tool(name: str) -> str:
+    found = shutil.which(name)
+    if found is None:
+        raise SystemExit(
+            f"ERROR: required tool '{name}' not found in PATH.\n"
+            f"Python: {sys.executable}\n"
+            f"PATH: {os.environ.get('PATH', '')}"
+        )
+    return found
 
 
 def _run_cmd(cmd: List[str]) -> str | None:
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        print(
+            f"[ERROR] Executable not found: {cmd[0]}\n"
+            f"Python: {sys.executable}\n"
+            f"PATH: {os.environ.get('PATH', '')}"
+        )
+        return None
+
     if p.returncode != 0:
         print(f"[ERROR] {' '.join(cmd)}\n{p.stderr}")
         return None
     return p.stdout
 
 
-def _vcf_samples(vcf_path: str) -> List[str]:
-    out = _run_cmd(["bcftools", "query", "-l", vcf_path])
+def _vcf_samples(vcf_path: str, bcftools_bin: str) -> List[str]:
+    out = _run_cmd([bcftools_bin, "query", "-l", vcf_path])
     if out is None:
         return []
     return [s.strip() for s in out.splitlines() if s.strip()]
@@ -78,33 +95,27 @@ def _load_matrix(matrix_path: str, metadata: pd.DataFrame, sample_col: str):
       - treat matrix sample order as the truth
       - if metadata has duplicates for a sample_id, keep the first.
     """
-    # Normalise metadata sample IDs to string and drop duplicates
     meta = metadata.copy()
     meta[sample_col] = meta[sample_col].astype(str)
     meta_unique = meta.drop_duplicates(subset=sample_col, keep="first").set_index(sample_col)
 
-    # First pass: just get columns
     header_df = pd.read_csv(matrix_path, sep="\t", nrows=0)
     cols = header_df.columns.tolist()
 
-    # Detect leading chr/pos/ref
     start_idx = 0
     lower = [c.lower() for c in cols[:3]]
     if len(cols) >= 3 and lower == ["chr", "pos", "ref"]:
         start_idx = 3
     all_sample_cols = cols[start_idx:]
 
-    # Intersection: samples in BOTH matrix and metadata, keep matrix order
     sample_cols = [s for s in all_sample_cols if s in meta_unique.index]
     if not sample_cols:
         raise SystemExit("No overlapping samples between matrix and metadata.")
 
-    # Build dtype dict: non-sample columns as 'string', sample columns as 'float32'
     dtype_map = {c: "string" for c in cols[:start_idx]}
     for c in sample_cols:
         dtype_map[c] = "float32"
 
-    # Read only the relevant columns
     df = pd.read_csv(
         matrix_path,
         sep="\t",
@@ -113,17 +124,20 @@ def _load_matrix(matrix_path: str, metadata: pd.DataFrame, sample_col: str):
         na_values=["N"],
     )
 
-    # variants x samples → samples x variants
     M = df[sample_cols].to_numpy(dtype="float32")
     X = M.T
 
-    # Metadata subset in the same order as sample_cols
     meta_sub = meta_unique.loc[sample_cols].reset_index()
 
     return X, sample_cols, meta_sub
 
 
-def _load_vcf_as_matrix(vcf_path: str, metadata: pd.DataFrame, sample_col: str):
+def _load_vcf_as_matrix(
+    vcf_path: str,
+    metadata: pd.DataFrame,
+    sample_col: str,
+    bcftools_bin: str = "bcftools",
+):
     """
     Convert VCF to 0/0.5/1 matrix using bcftools query, no imputation.
 
@@ -132,31 +146,28 @@ def _load_vcf_as_matrix(vcf_path: str, metadata: pd.DataFrame, sample_col: str):
       - treat VCF sample order as the truth
       - if metadata has duplicates for a sample_id, keep the first.
     """
-    _require_tool("bcftools")
+    bcftools = _require_tool(bcftools_bin)
+    print(f"[INFO] Using bcftools: {bcftools}")
 
-    # Normalise metadata sample IDs to string and drop duplicates
     meta = metadata.copy()
     meta[sample_col] = meta[sample_col].astype(str)
     meta_unique = meta.drop_duplicates(subset=sample_col, keep="first").set_index(sample_col)
 
-    vcf_samples = _vcf_samples(vcf_path)
+    vcf_samples = _vcf_samples(vcf_path, bcftools)
     if not vcf_samples:
         raise SystemExit("Could not read samples from VCF via bcftools.")
 
-    # Samples present in both, keeping VCF order
     samples = [s for s in vcf_samples if s in meta_unique.index]
     if not samples:
         raise SystemExit("No overlapping samples between VCF and metadata.")
 
-    # Get VCF sample order from header (sanity, should match vcf_samples)
-    hdr = _run_cmd(["bcftools", "query", "-H", "-f", "%CHROM\t%POS[\t%SAMPLE]\n", vcf_path])
+    hdr = _run_cmd([bcftools, "query", "-H", "-f", "%CHROM\t%POS[\t%SAMPLE]\n", vcf_path])
     if hdr is None:
         raise SystemExit("bcftools query failed reading header.")
     all_samples = hdr.strip().splitlines()[-1].split("\t")[2:]
 
-    # Query genotypes
     fmt = "%CHROM\t%POS[\t%GT]\n"
-    body = _run_cmd(["bcftools", "query", "-f", fmt, vcf_path])
+    body = _run_cmd([bcftools, "query", "-f", fmt, vcf_path])
     if body is None or body.strip() == "":
         raise SystemExit("No variant rows returned by bcftools query.")
 
@@ -169,12 +180,11 @@ def _load_vcf_as_matrix(vcf_path: str, metadata: pd.DataFrame, sample_col: str):
         for j, gt in enumerate(gts):
             M[i, j] = _encode_gt_to_numeric(gt)
 
-    # Subset to intersected samples in VCF (header) order
-    idx = [all_samples.index(s) for s in samples]
+    sample_to_idx = {s: i for i, s in enumerate(all_samples)}
+    idx = [sample_to_idx[s] for s in samples]
     M = M[:, idx]
-    X = M.T  # samples x variants
+    X = M.T
 
-    # Metadata subset in same sample order
     meta_sub = meta_unique.loc[samples].reset_index()
 
     return X, samples, meta_sub
@@ -229,19 +239,15 @@ def _pcoa(distance_matrix: np.ndarray, n_components: int):
     D = np.asarray(distance_matrix, dtype=float)
     n = D.shape[0]
 
-    # Double-centering of squared distances
     D2 = D ** 2
     J = np.eye(n) - np.ones((n, n)) / n
     B = -0.5 * J @ D2 @ J
 
-    # Eigen decomposition
     eigvals, eigvecs = np.linalg.eigh(B)
-    # Sort descending
     idx = np.argsort(eigvals)[::-1]
     eigvals = eigvals[idx]
     eigvecs = eigvecs[:, idx]
 
-    # Keep positive components only
     eigvals = np.where(eigvals > 0, eigvals, 0.0)
     total_var = eigvals.sum()
     if total_var > 0:
@@ -257,8 +263,15 @@ def _pcoa(distance_matrix: np.ndarray, n_components: int):
 # ------------------------
 # Plotting
 # ------------------------
-def _scatter(scores: np.ndarray, evr: np.ndarray, meta: pd.DataFrame,
-             group_col: str, pc_i: int, pc_j: int, out_pdf: str):
+def _scatter(
+    scores: np.ndarray,
+    evr: np.ndarray,
+    meta: pd.DataFrame,
+    group_col: str,
+    pc_i: int,
+    pc_j: int,
+    out_pdf: str,
+):
     """
     Plot PC{pc_i} vs PC{pc_j} (principal coordinates) colored by group_col.
     """
@@ -287,15 +300,23 @@ def _scatter(scores: np.ndarray, evr: np.ndarray, meta: pd.DataFrame,
 
     plt.figure(figsize=(8.5, 6.2))
     ax = plt.gca()
-    ax.scatter(scores[:, i], scores[:, j],
-               s=32, c=colors, edgecolor="black", linewidth=0.3, alpha=0.9)
+    ax.scatter(
+        scores[:, i],
+        scores[:, j],
+        s=32,
+        c=colors,
+        edgecolor="black",
+        linewidth=0.3,
+        alpha=0.9,
+    )
     ax.set_xlabel(xl)
     ax.set_ylabel(yl)
 
     handles = [
         plt.Line2D(
             [0], [0],
-            marker="o", color="w",
+            marker="o",
+            color="w",
             markerfacecolor=color_map[g],
             markeredgecolor="black",
             markersize=7,
@@ -347,6 +368,7 @@ def run(
     group_by: Optional[List[str]] = None,
     max_sample_missing: Optional[float] = None,
     pcs: Optional[List[str]] = None,
+    bcftools_bin: str = "bcftools",
 ):
     """
     Either --matrix or --vcf must be provided (mutually exclusive).
@@ -366,13 +388,16 @@ def run(
     if sample_col not in meta.columns:
         raise SystemExit(f"Metadata missing required sample column '{sample_col}'.")
 
-    # Load genotype data
     if matrix:
         X, samples, meta_sub = _load_matrix(matrix, meta, sample_col=sample_col)
     else:
-        X, samples, meta_sub = _load_vcf_as_matrix(vcf, meta, sample_col=sample_col)
+        X, samples, meta_sub = _load_vcf_as_matrix(
+            vcf_path=vcf,
+            metadata=meta,
+            sample_col=sample_col,
+            bcftools_bin=bcftools_bin,
+        )
 
-    # Optional sample missingness filter
     if max_sample_missing is not None:
         miss_prop = np.mean(np.isnan(X), axis=1)
         keep = miss_prop <= float(max_sample_missing)
@@ -383,20 +408,16 @@ def run(
             meta_sub = meta_sub.iloc[keep].reset_index(drop=True)
             samples = [s for k, s in zip(keep, samples) if k]
 
-    # Distance matrix (amap-like Manhattan)
     print("[INFO] Computing Manhattan distance matrix (amap-style, with NA handling)...")
     D = _manhattan_dist_matrix(X)
 
-    # Decide PC pairs and number of components
     pc_pairs = _parse_pcs_list(pcs)
     max_pc = max(max(a, b) for a, b in pc_pairs)
     n_comp = max(max_pc, 3)
 
-    # PCoA / cmdscale
     print("[INFO] Running classical MDS / PCoA...")
     coords, evr = _pcoa(D, n_components=n_comp)
 
-    # Decide grouping columns
     if not group_by:
         candidates = ["region", "country", "year"]
         group_by = [c for c in candidates if c in meta_sub.columns]
@@ -404,7 +425,6 @@ def run(
             print("[WARN] No default group columns (region/country/year) found; will plot 'all' only.")
             group_by = []
 
-    # Plot
     if group_by:
         for gcol in group_by:
             for (a, b) in pc_pairs:
@@ -416,4 +436,3 @@ def run(
         for (a, b) in pc_pairs:
             out_pdf = os.path.join(outdir, f"pca_all_PC{a}_PC{b}.pdf")
             _scatter(coords, evr, meta_all, "all", a, b, out_pdf)
-
