@@ -207,6 +207,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Drop samples with >X fraction missing (e.g. 0.3)",
     )
+    p.add_argument(
+        "--bcftools-bin",
+        default="bcftools",
+        help="Path to bcftools executable (default: bcftools)",
+    )
 
     # ------------------------------------------------------------------
     # dataset-stats
@@ -444,6 +449,7 @@ def main(argv: list[str] | None = None) -> None:
             group_by=args.group_by,
             pcs=args.pcs,
             max_sample_missing=args.max_sample_missing,
+            bcftools_bin=args.bcftools_bin,
         )
         return
 
