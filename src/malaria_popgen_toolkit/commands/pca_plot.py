@@ -69,7 +69,6 @@ def _vcf_samples(vcf_path: str, bcftools_bin: str) -> List[str]:
 
 
 def _encode_gt_to_numeric(gt: str) -> float | np.nan:
-    # '.', './.', '.|.' => NaN
     if gt is None or gt == "" or gt == "." or gt in (".|.", "./."):
         return np.nan
     al = gt.replace("|", "/").split("/")
@@ -286,8 +285,10 @@ def _scatter(
 
     labels = meta[group_col].astype(str).fillna("NA").tolist()
     uniq = list(dict.fromkeys(labels))
-    cmap = plt.cm.tab20.colors
-    color_map = {g: cmap[k % len(cmap)] for k, g in enumerate(uniq)}
+
+    cmap = plt.get_cmap("nipy_spectral")
+    color_positions = np.linspace(0, 1, len(uniq), endpoint=False)
+    color_map = {g: cmap(pos) for g, pos in zip(uniq, color_positions)}
     colors = [color_map[g] for g in labels]
 
     def _axis_label(pc_idx: int) -> str:
@@ -298,7 +299,7 @@ def _scatter(
     xl = _axis_label(i)
     yl = _axis_label(j)
 
-    plt.figure(figsize=(8.5, 6.2))
+    plt.figure(figsize=(10.5, 6.2))
     ax = plt.gca()
     ax.scatter(
         scores[:, i],
@@ -319,15 +320,28 @@ def _scatter(
             color="w",
             markerfacecolor=color_map[g],
             markeredgecolor="black",
-            markersize=7,
+            markersize=6,
             label=g,
         )
         for g in uniq
     ]
-    ax.legend(handles=handles, loc="best", fontsize=8, frameon=True)
+
+    ax.legend(
+        handles=handles,
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        fontsize=7,
+        frameon=True,
+        borderaxespad=0.0,
+        ncol=2,
+        columnspacing=0.8,
+        handletextpad=0.4,
+    )
+
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
-    plt.tight_layout()
+
+    plt.tight_layout(rect=[0, 0, 0.78, 1])
     os.makedirs(os.path.dirname(os.path.abspath(out_pdf)) or ".", exist_ok=True)
     plt.savefig(out_pdf)
     plt.close()
