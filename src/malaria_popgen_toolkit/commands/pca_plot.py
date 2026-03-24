@@ -285,10 +285,8 @@ def _scatter(
 
     labels = meta[group_col].astype(str).fillna("NA").tolist()
     uniq = list(dict.fromkeys(labels))
-
-    cmap = plt.get_cmap("nipy_spectral")
-    color_positions = np.linspace(0, 1, len(uniq), endpoint=False)
-    color_map = {g: cmap(pos) for g, pos in zip(uniq, color_positions)}
+    cmap = plt.cm.tab20.colors
+    color_map = {g: cmap[k % len(cmap)] for k, g in enumerate(uniq)}
     colors = [color_map[g] for g in labels]
 
     def _axis_label(pc_idx: int) -> str:
@@ -447,6 +445,9 @@ def run(
     else:
         meta_all = meta_sub.copy()
         meta_all["all"] = "all"
+        for (a, b) in pc_pairs:
+            out_pdf = os.path.join(outdir, f"pca_all_PC{a}_PC{b}.pdf")
+            _scatter(coords, evr, meta_all, "all", a, b, out_pdf)
         for (a, b) in pc_pairs:
             out_pdf = os.path.join(outdir, f"pca_all_PC{a}_PC{b}.pdf")
             _scatter(coords, evr, meta_all, "all", a, b, out_pdf)
