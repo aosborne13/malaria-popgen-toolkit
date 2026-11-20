@@ -22,6 +22,7 @@ from malaria_popgen_toolkit.commands import (
     hmmibd_summary,
     ihs_selection,
     missense_drugres_af,
+    nj_tree,
     pca_plot,
     tess3r_admixture,
     xpehh_selection,
@@ -472,6 +473,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--threads", type=int, default=4)
 
+    # ------------------------------------------------------------------
+    # Trees
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "nj-tree",
+        help="Neighbour-joining tree from a binary SNP matrix",
+    )
+    p.add_argument("--workdir", required=True)
+    p.add_argument("--matrix_binary", required=True, help="Binary SNP matrix: chr,pos,ref,<samples>")
+    p.add_argument("--metadata", required=True, help="Metadata TSV")
+    p.add_argument("--label_id", default="sample_id")
+    p.add_argument("--label_fws", default=None, help="Fws column; if given, samples below --fws_th are dropped")
+    p.add_argument("--fws_th", type=float, default=0.95)
+    p.add_argument("--region", default=None, help="Restrict to one window, as chr:start-end")
+    p.add_argument("--remove_chr", default=None)
+    p.add_argument(
+        "--mixed_call",
+        default="alt",
+        choices=["alt", "missing", "keep"],
+        help="How to treat mixed (0.5) calls (default: alt)",
+    )
+    p.add_argument("--max_sample_missing", type=float, default=0.2)
+    p.add_argument("--max_locus_missing", type=float, default=0.2)
+    p.add_argument("--min_shared", type=int, default=50,
+                   help="Warn if any pair shares fewer than this many called loci")
+    p.add_argument("--max_loci", type=int, default=None,
+                   help="Randomly thin to at most this many loci")
+    p.add_argument("--n_boot", type=int, default=0, help="Bootstrap replicates; 0 skips")
+    p.add_argument("--na_char", default="N")
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--prefix", default="nj_tree")
+    p.add_argument("--plot", action="store_true", help="Also write a quick unrooted PDF")
+
     return parser
 
 
@@ -724,6 +758,30 @@ def main(argv: list[str] | None = None) -> None:
             prefix=args.prefix,
             force_rebuild=args.force_rebuild,
             threads=args.threads,
+        )
+        return
+
+    if args.command == "nj-tree":
+        require_tool("Rscript")
+        nj_tree.run(
+            workdir=args.workdir,
+            matrix_binary=args.matrix_binary,
+            metadata=args.metadata,
+            label_id=args.label_id,
+            label_fws=args.label_fws,
+            fws_th=args.fws_th,
+            region=args.region,
+            remove_chr=args.remove_chr,
+            mixed_call=args.mixed_call,
+            max_sample_missing=args.max_sample_missing,
+            max_locus_missing=args.max_locus_missing,
+            min_shared=args.min_shared,
+            max_loci=args.max_loci,
+            n_boot=args.n_boot,
+            na_char=args.na_char,
+            seed=args.seed,
+            prefix=args.prefix,
+            plot=args.plot,
         )
         return
 
