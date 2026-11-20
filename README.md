@@ -369,11 +369,111 @@ malaria-pipeline ihs-selection \
   --focus-pop Ethiopia_2013 \
   --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
 ```
-### *XP-EHH* Workflow
-*Under construction...*
 
 ### Fst
-*Under construction...*
+Genome-wide pairwise Fst between two groups defined in supplied metadata, computed directly from the binary SNP matrix.
+
+```
+malaria-pipeline fst-scan \
+  --workdir fst_ethiopia_vs_africa \
+  --matrix_binary snps.mat.bin \
+  --metadata metadata.tsv \
+  --species Pf3D7 \
+  --label_category country \
+  --pop1 Ethiopia \
+  --label_fws fws --fws_th 0.95 \
+  --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3
+```
+
+Omitting `--pop2` compares `--pop1` against every other category. To compare
+named groups, pass both as comma-separated lists:
+
+```
+  --pop1 Ethiopia --pop2 Kenya,Tanzania,Uganda
+```
+
+**Choosing an estimator.** `--estimator` accepts:
+
+| Value | Estimator |
+|---|---|
+| `weir-cockerham` *(default)* | Weir & Cockerham (1984) theta, haploid form, corrected for finite sampling |
+| `wright` | Sample-size-weighted Wright's Fst, uncorrected |
+
+Outputs are a TSV of every retained SNP with per-population allele frequencies and Fst, plus a second TSV of sites at or above `--fst_thresh` with gene-annotations.
 
 ## Admixture ancestry analysis
-*Under construction...*
+
+Spatially-explicit ancestry estimation with [TESS3](https://github.com/bcm-uga/TESS3_encho_sen), which conditions ancestry coefficients on sample coordinates rather than treating isolates as independent of their geographical origin.
+
+### Input
+
+The metadata file needs longitude and latitude per sample, in decimal degrees:
+
+| sample_id | country | longitude | latitude | fws |
+|---|---|---|---|---|
+| ETH_001 | Ethiopia | 37.5533 | 6.0333 | 0.98 |
+| KEN_014 | Kenya | 34.7680 | -0.0917 | 0.99 |
+
+Samples with a missing coordinate are dropped — TESS3 cannot place them. Genotypes come from the same binary SNP matrix the rest of the toolkit uses; mixed calls are coded to the alternate allele, matching `fst-scan` and the IBD modules.
+
+### Step 1 — choose K from the cross-entropy curve
+
+Run a range of K first. This writes cross-entropy and RMSE per K and stops, without producing plots:
+
+```
+malaria-pipeline tess3r-admixture \
+  --workdir tess3r_africa \
+  --matrix_binary snps.mat.bin \
+  --metadata metadata.tsv \
+  --K 1-10 \
+  --rep 10 \
+  --label_fws fws --fws_th 0.95 \
+  --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3 \
+  --threads 8
+```
+
+The curve usually flattens rather than showing a clean minimum, so state in your methods which K was taken and why — the lowest cross-entropy is the starting point.
+
+### Step 2 — run the chosen K
+
+```
+malaria-pipeline tess3r-admixture \
+  --workdir tess3r_africa \
+  --metadata metadata.tsv \
+  --matrix_rds tess3r_africa/tess3r.matbinT.rds \
+  --K 6 \
+  --rep 10 \
+  --group_col country \
+  --threads 8
+```
+
+Transposing the genotype matrix is the slow step, so the first run caches it as
+`<workdir>/<prefix>.matbinT.rds`. Later runs pick the cache up automatically; pass
+it explicitly with `--matrix_rds` to be sure, or `--force_rebuild` to discard it.
+
+### Output
+
+| File | Contents |
+|---|---|
+| `<prefix>.cross_entropy.tsv` | Cross-entropy and RMSE per K |
+| `<prefix>.cross_entropy.pdf` | The curve (range runs only) |
+| `<prefix>_K<K>.qmatrix.tsv` | Ancestry coefficients per sample |
+| `<prefix>_K<K>.admixture.pdf` | Barplot, faceted by `--group_col` |
+| `<prefix>_K<K>.ancestry_by_<group>.tsv` | Mean ancestry per group |
+| `<prefix>_K<K>.map.pdf` | Interpolated ancestry across the sampled range |
+| `<prefix>_rep<rep>_K<K>.rds` | The fitted `tess3` object, for re-plotting |
+
+### Notes
+
+- `--method` defaults to `projected.ls`. `qp` is slower and rarely changes the result
+  at this ploidy.
+- `--ploidy 1` is the default and is what you want for monoclonal *P. falciparum*.
+  Combine it with `--label_fws` so polyclonal infections are excluded rather than
+  modelled as admixed — unfiltered, mixed infections load onto their own component
+  and are easy to mistake for ancestry.
+- `--lambda` controls how strongly ancestry is smoothed over space. Raising it makes
+  the map cleaner and the inference more assumption-laden; leave it at 1 unless you
+  can say why.
+- Component numbering is arbitrary and is not stable across runs or across K. Describe
+  components by where they predominate, never by index.
+- The map step needs `r-rworldmap`; without it the run completes and skips the map.
