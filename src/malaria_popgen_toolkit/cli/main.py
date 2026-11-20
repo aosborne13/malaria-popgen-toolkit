@@ -14,6 +14,7 @@ import sys
 
 from malaria_popgen_toolkit.commands import (
     dataset_stats,
+    fst_scan,
     fws_dotplot,
     haplotype_map_region,
     hmmibd_ibdplots,
@@ -377,6 +378,43 @@ def build_parser() -> argparse.ArgumentParser:
         help='Optional comma-separated list of comparisons, e.g. "Ethiopia_vs_Ghana,Ethiopia_vs_Malawi"',
     )
 
+    # ------------------------------------------------------------------
+    # Fst
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "fst-scan",
+        help="Genome-wide pairwise Fst between two groups from a binary SNP matrix",
+    )
+    p.add_argument("--workdir", required=True)
+    p.add_argument("--matrix_binary", required=True, help="Binary SNP matrix: chr,pos,ref,<samples>")
+    p.add_argument("--metadata", required=True, help="Metadata TSV")
+    p.add_argument("--pop1", required=True, help="Comma-separated category value(s) forming population 1")
+    p.add_argument("--pop2", default=None, help="Population 2; if omitted, all other categories are used")
+    p.add_argument("--label_id", default="sample_id")
+    p.add_argument("--label_category", default="country")
+    p.add_argument("--label_fws", default=None, help="Fws column; if given, samples below --fws_th are dropped")
+    p.add_argument("--fws_th", type=float, default=0.95)
+    p.add_argument(
+        "--estimator",
+        default="weir-cockerham",
+        choices=["weir-cockerham", "wright"],
+        help="Fst estimator (default: weir-cockerham)",
+    )
+    p.add_argument("--max_missing", type=float, default=0.2)
+    p.add_argument("--maf", type=float, default=0.01)
+    p.add_argument("--mixed_as", default="alt", choices=["alt", "missing"])
+    p.add_argument("--na_char", default="N")
+    p.add_argument("--remove_chr", default=None)
+    p.add_argument(
+        "--species",
+        default="Pf3D7",
+        help="Species/reference bundle ID to fetch (default: Pf3D7)",
+    )
+    p.add_argument("--gene-file", default=None, help="Override genome product TSV path")
+    p.add_argument("--fst_thresh", type=float, default=0.95)
+    p.add_argument("--out_prefix", default=None)
+    p.add_argument("--threads", type=int, default=4)
+
     return parser
 
 
@@ -570,6 +608,35 @@ def main(argv: list[str] | None = None) -> None:
             regex_chr=args.regex_chr,
             regex_groupid=args.regex_groupid,
             panel_groups=args.panel_groups,
+        )
+        return
+
+    if args.command == "fst-scan":
+        require_tool("Rscript")
+        gene_file = getattr(args, "gene_file", None)
+        if gene_file is None:
+            gene_file = resolve_species(args.species)["gene_product"]
+
+        fst_scan.run(
+            workdir=args.workdir,
+            matrix_binary=args.matrix_binary,
+            metadata=args.metadata,
+            pop1=args.pop1,
+            pop2=args.pop2,
+            label_id=args.label_id,
+            label_category=args.label_category,
+            label_fws=args.label_fws,
+            fws_th=args.fws_th,
+            estimator=args.estimator,
+            max_missing=args.max_missing,
+            maf=args.maf,
+            mixed_as=args.mixed_as,
+            na_char=args.na_char,
+            remove_chr=args.remove_chr,
+            gene_file=gene_file,
+            fst_thresh=args.fst_thresh,
+            out_prefix=args.out_prefix,
+            threads=args.threads,
         )
         return
 
