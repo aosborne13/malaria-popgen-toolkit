@@ -23,7 +23,7 @@ def run(
 
     cmd = [
         "Rscript",
-        str(Path(__file__).parents[2] / "scripts/selection/xpehh_full_pipeline.R"),
+        str(Path(__file__).resolve().parents[3] / "scripts/selection/xpehh_full_pipeline.R"),
         "--workdir",
         str(workdir),
         "--genome-file",
@@ -47,6 +47,3 @@ def run(
         cmd += ["--panel-groups", str(panel_groups)]
 
     subprocess.run(cmd, check=True)
-
-
-
