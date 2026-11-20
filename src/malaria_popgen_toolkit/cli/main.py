@@ -23,6 +23,7 @@ from malaria_popgen_toolkit.commands import (
     ihs_selection,
     missense_drugres_af,
     pca_plot,
+    tess3r_admixture,
     xpehh_selection,
 )
 
@@ -415,6 +416,62 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out_prefix", default=None)
     p.add_argument("--threads", type=int, default=4)
 
+    # ------------------------------------------------------------------
+    # Admixture (TESS3)
+    # ------------------------------------------------------------------
+    p = sub.add_parser(
+        "tess3r-admixture",
+        help="Spatially-explicit ancestry estimation with TESS3",
+    )
+    p.add_argument("--workdir", required=True)
+    p.add_argument("--metadata", required=True, help="Metadata TSV; must carry coordinates")
+    p.add_argument(
+        "--matrix_binary",
+        default=None,
+        help="Binary SNP matrix: chr,pos,ref,<samples>. Required unless --matrix_rds is given",
+    )
+    p.add_argument(
+        "--matrix_rds",
+        default=None,
+        help="Pre-built samples x SNPs RDS; skips matrix parsing",
+    )
+    p.add_argument("--label_id", default="sample_id")
+    p.add_argument("--lon_col", default="longitude")
+    p.add_argument("--lat_col", default="latitude")
+    p.add_argument(
+        "--group_col",
+        default="country",
+        help="Column used to order and facet the admixture barplot",
+    )
+    p.add_argument("--label_fws", default=None, help="Fws column; if given, samples below --fws_th are dropped")
+    p.add_argument("--fws_th", type=float, default=0.95)
+    p.add_argument(
+        "-K",
+        "--K",
+        default="1-10",
+        help="Single K (e.g. 6) or inclusive range (e.g. 1-10) for the cross-entropy curve",
+    )
+    p.add_argument("--rep", type=int, default=10, help="Repetitions per K")
+    p.add_argument("--method", default="projected.ls", choices=["projected.ls", "qp"])
+    p.add_argument(
+        "--lambda",
+        dest="lambda_",
+        type=float,
+        default=1.0,
+        help="Spatial regularisation parameter",
+    )
+    p.add_argument("--max_iteration", type=int, default=200)
+    p.add_argument("--ploidy", type=int, default=1)
+    p.add_argument("--na_char", default="N")
+    p.add_argument("--remove_chr", default=None)
+    p.add_argument("--prefix", default="tess3r")
+    p.add_argument(
+        "--force_rebuild",
+        action="store_true",
+        help="Rebuild the cached genotype matrix even if present",
+    )
+    p.add_argument("--threads", type=int, default=4)
+
     return parser
 
 
@@ -567,7 +624,7 @@ def main(argv: list[str] | None = None) -> None:
         ihs_selection.run(
             workdir=args.workdir,
             matrix_binary=args.matrix_binary,
-            metadata=args.metadata,
+            metadata_path=args.metadata,
             genome_file=genome_file,
             label_category=args.label_category,
             subgroup_col=args.subgroup_col,
@@ -640,9 +697,38 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
 
+    if args.command == "tess3r-admixture":
+        require_tool("Rscript")
+        if not args.matrix_binary and not args.matrix_rds:
+            parser.error("tess3r-admixture requires --matrix_binary or --matrix_rds")
+
+        tess3r_admixture.run(
+            workdir=args.workdir,
+            metadata=args.metadata,
+            matrix_binary=args.matrix_binary,
+            matrix_rds=args.matrix_rds,
+            label_id=args.label_id,
+            lon_col=args.lon_col,
+            lat_col=args.lat_col,
+            group_col=args.group_col,
+            label_fws=args.label_fws,
+            fws_th=args.fws_th,
+            K=args.K,
+            rep=args.rep,
+            method=args.method,
+            lambda_=args.lambda_,
+            max_iteration=args.max_iteration,
+            ploidy=args.ploidy,
+            na_char=args.na_char,
+            remove_chr=args.remove_chr,
+            prefix=args.prefix,
+            force_rebuild=args.force_rebuild,
+            threads=args.threads,
+        )
+        return
+
     parser.error(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":
     main()
-
