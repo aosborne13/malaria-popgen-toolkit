@@ -241,6 +241,88 @@ The command produces:
 
 
 ## Trees
+Neighbour-joining tree from the binary SNP matrix. Distances are Manhattan
+(`amap::Dist`) — the same metric `pca-plot` uses — so a tree and a PCoA built
+from the same matrix describe the same distances. The tree is `ape::nj()`, with
+optional bootstrap support from `ape::boot.phylo()`.
+
+```
+malaria-pipeline nj-tree \
+  --workdir trees \
+  --matrix_binary snps.mat.bin \
+  --metadata metadata.tsv \
+  --label_fws fws --fws_th 0.95 \
+  --remove_chr Pf3D7_API_v3,Pf3D7_MIT_v3 \
+  --n_boot 200 \
+  --plot
+```
+
+### Windowed trees
+
+`--region` restricts the tree to one interval, which is how you ask whether
+isolates sharing a locus also share the haplotype around it:
+
+```
+  --region Pf3D7_05_v3:706528-1206528
+```
+
+Narrow windows carry few markers, so check the marker count the run reports
+before reading anything into the topology. Below a few hundred markers, identical
+haplotypes collapse to zero-length branches and bootstrap support becomes
+uninformative rather than low — the replicates are resampling the same handful of
+sites.
+
+### Options that change the answer
+
+| Option | Effect |
+|---|---|
+| `--mixed_call` | `alt` (default) codes mixed calls to the alternate allele; `missing` drops them; `keep` leaves them at 0.5 |
+| `--label_fws` | Restricts to monoclonal infections. Without it, polyclonal isolates sit apart from everything on their mixed-call load rather than their ancestry, and the tree reads as structure |
+| `--max_locus_missing` | Loci missing in more than this fraction are dropped before distances |
+| `--max_sample_missing` | Samples missing more than this fraction are dropped |
+| `--max_loci` | Randomly thins to this many loci; bootstrap cost scales with marker count |
+| `--n_boot` | Replicates; `0` (default) skips bootstrapping |
+
+`--mixed_call alt` and `missing` bias in opposite directions — coding to alt makes
+polyclonal isolates look more derived, dropping them makes those pairs rest on
+fewer shared sites. If a result depends on which one was used, say so.
+
+Missing data is handled pairwise: loci uncalled in either isolate are excluded for
+that pair, and the distance is scaled up by the proportion used, following `amap`.
+That scaling assumes the excluded loci would have behaved like the included ones,
+which stops being reasonable when a pair shares very little. The run reports the
+fewest jointly called loci in any pair and warns below `--min_shared`.
+
+### Output
+
+| File | Contents |
+|---|---|
+| `<prefix>.nwk` | Newick tree; node labels are bootstrap percentages when `--n_boot > 0` |
+| `<prefix>_tips.tsv` | Tip order with metadata joined, for annotating plots |
+| `<prefix>.distance.tsv` | Pairwise distance matrix |
+| `<prefix>.pdf` | Quick unrooted plot, with `--plot` |
+
+The tree is unrooted. `ape::nj()` returns an arbitrary root for storage, so any
+root you see in a default plot is a drawing artefact, not a result — plot with
+`type = "unrooted"`, or state the outgroup if you root it deliberately.
+
+## Identity-by-Descent (IBD)
+This toolkit supports an end-to-end IBD workflow using hmmIBD, starting from a binary SNP matrix, producing pairwise IBD fractions, windowed IBD summaries, gene annotation, and article-style plots.
+
+#### Inputs
+Input files should include:
+1. A binary SNP matrix
+- rows = SNPs
+- columns = samples
+- values of 0 (Reference), 1 (Alternate), 0.5 (mixed-call), N (missing, NA)
+
+2. Metadata (.tsv) - tab-deliminated and must contain a "sample_id" column, a category (e.g. country, year) column, and an "fws" column
+3. Reference genome index - the .fai file alongside the Pf3D7 reference genome
+4. Gene product annotation - the "pf_genome_product_v3.tsv" file can be downloaded from https://plasmodb.org/plasmo/app/downloads but will also be available alongside this GitHub repo installation (Work-in-Progress)
+
+Chromosome names are expected to be Pf3D7-style (e.g. Pf3D7_01_v3). By default, the toolkit removes:
+- Pf3D7_API_v3
+- Pf3D7_MIT_v3
 
 ## Identity-by-Descent (IBD)
 This toolkit supports an end-to-end IBD workflow using hmmIBD, starting from a binary SNP matrix, producing pairwise IBD fractions, windowed IBD summaries, gene annotation, and article-style plots.
