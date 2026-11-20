@@ -33,7 +33,7 @@ def run(
 
     cmd = [
         "Rscript",
-        str(Path(__file__).parents[2] / "scripts/popgen/fst_scan.R"),
+        str(Path(__file__).resolve().parents[3] / "scripts/fst_scan.R"),
         "--workdir", str(workdir),
         "--matrix_binary", str(matrix_binary),
         "--metadata", str(metadata),
