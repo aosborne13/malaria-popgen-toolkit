@@ -7,3 +7,4 @@ from . import hmmibd_matrix
 from . import dataset_stats
 from . import fst_scan
 from . import tess3r_admixture
+from . import nj_tree
