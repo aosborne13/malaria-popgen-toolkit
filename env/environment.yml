@@ -39,12 +39,14 @@ dependencies:
   - r-amap
   - r-crayon
   
-  # ---- For building R/TESS3r ----
+  # ---- Admixture mapping (tess3r-admixture) ----
+  - r-rworldmap         # getMap() basemap for the interpolated ancestry map
+  - r-fields            # spatial interpolation used by tess3r::ggtess3Q
+  - r-maps
+
+  # ---- For building R/tess3r ----
   - r-remotes
   - r-rcpp
   - r-rcpparmadillo
 
   # (hmmIBD is compiled from source in scripts/setup_env.sh)
-
-
-
