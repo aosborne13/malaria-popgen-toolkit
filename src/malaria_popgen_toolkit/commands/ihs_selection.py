@@ -45,7 +45,7 @@ def run(
 
     cmd = [
         "Rscript",
-        str(Path(__file__).parents[2] / "scripts/selection/ihs_full_pipeline.R"),
+        str(Path(__file__).resolve().parents[3] / "scripts/selection/ihs_full_pipeline.R"),
         "--workdir",
         str(workdir),
         "--matrix_binary",
@@ -100,4 +100,3 @@ def run(
         cmd.append("--forced_mixed")
 
     subprocess.run(cmd, check=True)
-
